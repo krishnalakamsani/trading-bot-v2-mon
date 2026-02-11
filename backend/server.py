@@ -90,11 +90,22 @@ class ConnectionManager:
         # Send in a bounded way; drop broken/slow sockets to avoid log spam.
         stale: List[WebSocket] = []
         for connection in list(self.active_connections):
+            client = getattr(connection, 'client', None)
             try:
                 await asyncio.wait_for(connection.send_json(message), timeout=2)
+            except asyncio.TimeoutError as te:
+                stale.append(connection)
+                try:
+                    logger.warning(f"[WS] Broadcast timeout for client={client}; message_type={message.get('type')} size={len(str(message))} chars; dropping client: {te}")
+                except Exception:
+                    logger.warning(f"[WS] Broadcast timeout; dropping client: {client}")
             except Exception as e:
                 stale.append(connection)
-                logger.warning(f"[WS] Broadcast failed; dropping client: {e}")
+                # Log full exception with traceback to diagnose underlying cause (network/proxy/closed socket)
+                try:
+                    logger.exception(f"[WS] Broadcast failed for client={client}; message_type={message.get('type')} size={len(str(message))} chars; dropping client")
+                except Exception:
+                    logger.exception(f"[WS] Broadcast failed; dropping client")
 
         for ws in stale:
             self.disconnect(ws)
@@ -652,8 +663,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     hb = {"type": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()}
                     logger.debug(f"[WS] Sending heartbeat to {getattr(websocket, 'client', None)}")
                     await websocket.send_json(hb)
-                except Exception:
-                    logger.info(f"[WS] Heartbeat send failed for client: {getattr(websocket, 'client', None)}")
+                except Exception as e:
+                    # Log full exception so we can see why heartbeat failed (closed socket, network error, etc.)
+                    logger.exception(f"[WS] Heartbeat send failed for client: {getattr(websocket, 'client', None)}; dropping connection: {e}")
                     break
     except WebSocketDisconnect:
         manager.disconnect(websocket)

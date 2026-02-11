@@ -4,6 +4,7 @@ from typing import Optional
 from config import bot_state, config
 from indices import get_index_config, get_available_indices
 from database import save_config, load_config
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +341,23 @@ async def update_config_values(updates: dict) -> dict:
             bot_state['selected_index'] = new_index
             updated_fields.append('selected_index')
             logger.info(f"[CONFIG] Index changed to: {new_index}")
+
+            # Log warmup and trigger asynchronous seeding of indicators when the bot is running
+            try:
+                logger.info(f"[WARMUP] Engine warming up for {new_index} (seeding indicators)")
+                bot = get_trading_bot()
+                if getattr(bot, 'running', False):
+                    async def _seed_now():
+                        try:
+                            await bot._seed_indicators_from_mds_history()
+                            logger.info(f"[WARMUP] Seed complete for {new_index}")
+                        except Exception as e:
+                            logger.exception(f"[WARMUP] Seed failed for {new_index}: {e}")
+                    asyncio.create_task(_seed_now())
+                else:
+                    logger.info(f"[WARMUP] Bot not running; indicators will be seeded on next start for {new_index}")
+            except Exception:
+                logger.exception(f"[WARMUP] Failed to initiate warmup for {new_index}")
         else:
             logger.warning(f"[CONFIG] Invalid index: {new_index}. Available: {available}")
             
