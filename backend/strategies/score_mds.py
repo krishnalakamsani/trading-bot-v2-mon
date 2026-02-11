@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+# Read runtime config to allow A/B legacy vs tuned thresholds during replay
+from config import config
+
 
 @dataclass(frozen=True)
 class ExitDecision:
@@ -27,33 +30,68 @@ def decide_exit_mds(*, position_type: str, score: float, slope: float, slow_mom:
     should_exit = False
     reason = ""
 
+    # Support legacy vs tuned thresholds via config flag for A/B testing
+    legacy = bool(config.get('use_legacy_thresholds', False))
+
     if position_type == "CE":
-        if score <= -10.0:
-            if slow_mom <= -1.0:
-                should_exit = True
-                reason = "MDS Reversal (slow confirm)"
-        elif neutral:
-            if abs(slow_mom) <= 1.0:
-                should_exit = True
-                reason = "MDS Neutral (slow confirm)"
-        elif slope <= -2.0 and score < 12.0:
-            if slow_mom <= 0.0:
-                should_exit = True
-                reason = "MDS Momentum Loss (slow confirm)"
+        if legacy:
+            # Legacy behavior (pre-tuning)
+            if score <= -10.0:
+                if slow_mom <= -1.0:
+                    should_exit = True
+                    reason = "MDS Reversal (slow confirm)"
+            elif neutral:
+                if abs(slow_mom) <= 1.0:
+                    should_exit = True
+                    reason = "MDS Neutral (slow confirm)"
+            elif slope <= -2.0 and score < 12.0:
+                if slow_mom <= 0.0:
+                    should_exit = True
+                    reason = "MDS Momentum Loss (slow confirm)"
+        else:
+            # Tuned behavior (stricter exits)
+            if score <= -12.0:
+                if slow_mom <= -1.5:
+                    should_exit = True
+                    reason = "MDS Reversal (slow confirm)"
+            elif neutral:
+                if abs(slow_mom) <= 0.5:
+                    should_exit = True
+                    reason = "MDS Neutral (slow confirm)"
+            elif slope <= -2.5 and score < 12.0:
+                if slow_mom <= -0.5:
+                    should_exit = True
+                    reason = "MDS Momentum Loss (slow confirm)"
 
     elif position_type == "PE":
-        if score >= 10.0:
-            if slow_mom >= 1.0:
-                should_exit = True
-                reason = "MDS Reversal (slow confirm)"
-        elif neutral:
-            if abs(slow_mom) <= 1.0:
-                should_exit = True
-                reason = "MDS Neutral (slow confirm)"
-        elif slope >= 2.0 and score > -12.0:
-            if slow_mom >= 0.0:
-                should_exit = True
-                reason = "MDS Momentum Loss (slow confirm)"
+        if legacy:
+            # Legacy behavior (pre-tuning)
+            if score >= 10.0:
+                if slow_mom >= 1.0:
+                    should_exit = True
+                    reason = "MDS Reversal (slow confirm)"
+            elif neutral:
+                if abs(slow_mom) <= 1.0:
+                    should_exit = True
+                    reason = "MDS Neutral (slow confirm)"
+            elif slope >= 2.0 and score > -12.0:
+                if slow_mom >= 0.0:
+                    should_exit = True
+                    reason = "MDS Momentum Loss (slow confirm)"
+        else:
+            # Tuned behavior (stricter exits)
+            if score >= 12.0:
+                if slow_mom >= 1.5:
+                    should_exit = True
+                    reason = "MDS Reversal (slow confirm)"
+            elif neutral:
+                if abs(slow_mom) <= 0.5:
+                    should_exit = True
+                    reason = "MDS Neutral (slow confirm)"
+            elif slope >= 2.5 and score > -12.0:
+                if slow_mom >= 0.5:
+                    should_exit = True
+                    reason = "MDS Momentum Loss (slow confirm)"
 
     return ExitDecision(should_exit, reason)
 
@@ -77,11 +115,13 @@ def decide_entry_mds(
     if direction == "NONE":
         return EntryDecision(False, "", "neutral_band")
 
-    if abs(score) < 10.0:
+    # Raise entry bar slightly to reduce entries into fragile moves
+    if abs(score) < 12.0:
         return EntryDecision(False, "", "score_too_low")
 
-    if abs(slope) < 1.0:
+    if abs(slope) < 1.5:
         return EntryDecision(False, "", "slope_too_low")
+
 
     if confirm_count < confirm_needed:
         return EntryDecision(False, "", "arming")

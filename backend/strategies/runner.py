@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .score_mds import decide_entry_mds, decide_exit_mds
+from config import config
 
 
 @dataclass(frozen=True)
@@ -70,12 +71,20 @@ class ScoreMdsRunner:
             self._confirm_count = 0
             return StrategyEntryDecision(False, "", "neutral_band")
 
-        if abs(float(score or 0.0)) < 10.0:
+        # Select thresholds based on legacy vs tuned config
+        if bool(config.get('use_legacy_thresholds', False)):
+            score_min = 10.0
+            slope_min = 1.0
+        else:
+            score_min = 12.0
+            slope_min = 1.5
+
+        if abs(float(score or 0.0)) < float(score_min):
             self._last_direction = direction
             self._confirm_count = 0
             return StrategyEntryDecision(False, "", "score_too_low")
 
-        if abs(float(slope or 0.0)) < 1.0:
+        if abs(float(slope or 0.0)) < float(slope_min):
             self._last_direction = direction
             self._confirm_count = 0
             return StrategyEntryDecision(False, "", "slope_too_low")

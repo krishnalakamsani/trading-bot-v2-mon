@@ -173,6 +173,10 @@ config = {
     "htf_filter_enabled": True,  # If True: require HTF SuperTrend direction alignment for LTF entries
     "htf_filter_timeframe": 60,  # seconds (default 1m)
 
+    # Toggle to run legacy (pre-tuning) thresholds for A/B replay/backtest
+    # Set env `USE_LEGACY_THRESHOLDS=1` to enable legacy behavior when starting the server.
+    "use_legacy_thresholds": _env_bool("USE_LEGACY_THRESHOLDS", False),
+
     # Exit protection
     "min_hold_seconds": 15,  # Minimum seconds to hold a new position before strategy exits (0 = disabled)
 
