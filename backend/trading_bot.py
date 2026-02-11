@@ -1411,8 +1411,8 @@ class TradingBot:
     async def broadcast_state(self):
         """Broadcast current state to WebSocket clients"""
         from server import manager
-        
-        await manager.broadcast({
+
+        payload = {
             "type": "state_update",
             "data": {
                 "index_ltp": bot_state['index_ltp'],
@@ -1442,7 +1442,14 @@ class TradingBot:
                 "htf_filter_timeframe": int(config.get('htf_filter_timeframe', 60)),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
-        })
+        }
+
+        try:
+            logger.debug(f"[STATE] Preparing to broadcast state_update: index_ltp={payload['data'].get('index_ltp')} selected_index={payload['data'].get('selected_index')} daily_trades={payload['data'].get('daily_trades')}")
+            await manager.broadcast(payload)
+            logger.debug("[STATE] state_update broadcast complete")
+        except Exception as e:
+            logger.exception(f"[STATE] Failed to broadcast state_update: {e}")
 
     async def process_mds_on_close(self, mds_snapshot, index_ltp: float) -> bool:
         """Process score-engine snapshot on candle close.

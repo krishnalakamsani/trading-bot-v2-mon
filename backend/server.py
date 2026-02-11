@@ -63,14 +63,29 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        try:
+            client = getattr(websocket, 'client', None)
+            logger.info(f"[WS] Client connected: {client} | Total={len(self.active_connections)}")
+        except Exception:
+            logger.info(f"[WS] Client connected | Total={len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            try:
+                client = getattr(websocket, 'client', None)
+                logger.info(f"[WS] Client disconnected: {client} | Total={len(self.active_connections)}")
+            except Exception:
+                logger.info(f"[WS] Client disconnected | Total={len(self.active_connections)}")
 
     async def broadcast(self, message: dict):
         if not self.active_connections:
             return
+
+        try:
+            logger.debug(f"[WS] Broadcasting message type={message.get('type')} to {len(self.active_connections)} clients")
+        except Exception:
+            logger.debug("[WS] Broadcasting message to clients")
 
         # Send in a bounded way; drop broken/slow sockets to avoid log spam.
         stale: List[WebSocket] = []
@@ -83,6 +98,8 @@ class ConnectionManager:
 
         for ws in stale:
             self.disconnect(ws)
+
+        logger.debug("[WS] Broadcast complete")
 
 
 manager = ConnectionManager()
@@ -378,6 +395,68 @@ async def get_config():
     return bot_service.get_config()
 
 
+@api_router.post("/debug/ws_test")
+async def debug_ws_test(index: str = Query(default=None)):
+    """Trigger a test broadcast to connected WebSocket clients.
+
+    Optional query parameter `index` (eg. SENSEX) will fetch the latest close from MDS
+    and broadcast a `state_update` with `index_ltp` set to that value for verification.
+    """
+    try:
+        if index:
+            # Fetch latest close from MDS for the requested index
+            try:
+                from mds_client import fetch_latest_close
+                base_url = str(config.get('mds_base_url', '') or '').strip()
+                if not base_url:
+                    raise HTTPException(status_code=400, detail="MDS base URL not configured")
+                tf = int(config.get('candle_interval', 5) or 5)
+                poll_s = float(config.get('mds_poll_seconds', 1.0) or 1.0)
+
+                close_price, _ts = await fetch_latest_close(
+                    base_url=base_url,
+                    symbol=index,
+                    timeframe_seconds=tf,
+                    min_poll_seconds=poll_s,
+                )
+
+                if close_price is None:
+                    raise HTTPException(status_code=404, detail=f"No close price available for {index}")
+
+                payload = {
+                    "type": "state_update",
+                    "data": {
+                        "index_ltp": float(close_price),
+                        "selected_index": index,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+
+                logger.info(f"[DEBUG] Broadcasting state_update for index={index} LTP={close_price}")
+                await manager.broadcast(payload)
+                return JSONResponse({"status": "ok", "sent": payload})
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception(f"[DEBUG] Failed to fetch close for {index}: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # Fallback: simple debug test broadcast
+        payload = {
+            "type": "debug_test",
+            "message": "this is a test broadcast",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await manager.broadcast(payload)
+        logger.info("[DEBUG] Triggered test broadcast")
+        return JSONResponse({"status": "ok", "sent": payload})
+
+    except Exception as e:
+        logger.exception(f"[DEBUG] Failed to send test broadcast: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api_router.get("/indices")
 async def get_indices():
     """Get available indices"""
@@ -556,22 +635,30 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates"""
     await manager.connect(websocket)
     try:
+        try:
+            client = getattr(websocket, 'client', None)
+            logger.info(f"[WS] Connection established handler for client: {client}")
+        except Exception:
+            logger.info("[WS] Connection established handler")
+
         while True:
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
                 if data == "ping":
+                    logger.debug(f"[WS] Received ping from {getattr(websocket, 'client', None)}")
                     await websocket.send_text("pong")
             except asyncio.TimeoutError:
                 try:
-                    await websocket.send_json({
-                        "type": "heartbeat",
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    })
+                    hb = {"type": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()}
+                    logger.debug(f"[WS] Sending heartbeat to {getattr(websocket, 'client', None)}")
+                    await websocket.send_json(hb)
                 except Exception:
+                    logger.info(f"[WS] Heartbeat send failed for client: {getattr(websocket, 'client', None)}")
                     break
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception:
+    except Exception as e:
+        logger.exception(f"[WS] Unexpected error in websocket handler: {e}")
         manager.disconnect(websocket)
     finally:
         manager.disconnect(websocket)
