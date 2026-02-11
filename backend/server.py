@@ -204,12 +204,17 @@ async def lifespan(app: FastAPI):
 
     # Start MDS consumer (consume-only, no backend DB writes) for UI market feed.
     try:
+        base_url = str(config.get('mds_base_url', '') or '').strip()
         if (
             str(config.get('market_data_provider', '')).strip().lower() == 'mds'
             and bool(config.get('enable_mds_consumer', True))
+            and base_url
         ):
             _mds_consumer_task = asyncio.create_task(_mds_consumer_loop())
             logger.info('[MDS] Consumer started')
+        else:
+            if str(config.get('market_data_provider', '')).strip().lower() == 'mds':
+                logger.info('[MDS] Consumer not started: MDS base URL not configured or consumer disabled')
     except Exception as e:
         logger.warning(f"[MDS] Consumer not started: {e}")
 

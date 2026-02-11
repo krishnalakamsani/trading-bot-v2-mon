@@ -706,6 +706,15 @@ class TradingBot:
         if bot_state.get('mode') != 'paper':
             if not self.initialize_dhan():
                 return {"status": "error", "message": "Dhan API not available (credentials/SDK)"}
+        else:
+            # In paper mode, optionally initialize Dhan for live quotes if enabled
+            # (e.g., when `paper_use_live_option_quotes` is True or provider is 'dhan').
+            try:
+                if bool(config.get('paper_use_live_option_quotes', True)) or str(config.get('market_data_provider', 'dhan')).strip().lower() == 'dhan':
+                    self.initialize_dhan()
+            except Exception:
+                # Non-fatal: continue with paper flow even if Dhan init fails
+                pass
 
         # Prepare replay candles for after-hours (or bypass-hours) paper simulation
         replay_enabled = bool(bot_state.get('mode') == 'paper' and config.get('paper_replay_enabled', False))
@@ -1265,6 +1274,30 @@ class TradingBot:
                 
                 # Update candle data
                 index_ltp = bot_state['index_ltp']
+                # If we're in paper mode and no live quote is available, simulate a base price
+                # so indicators and ScoreEngine can warm up and UI shows activity.
+                if provider != 'mds' and bot_state.get('mode') == 'paper' and (not index_ltp or float(index_ltp) <= 0):
+                    if bot_state.get('simulated_base_price') is None:
+                        # Prefer any existing index_ltp as starting point; else fall back to a realistic base.
+                        if bot_state.get('index_ltp', 0) > 0:
+                            bot_state['simulated_base_price'] = float(bot_state['index_ltp'])
+                        else:
+                            if index_name == 'NIFTY':
+                                bot_state['simulated_base_price'] = 23500.0
+                            elif index_name == 'BANKNIFTY':
+                                bot_state['simulated_base_price'] = 51500.0
+                            elif index_name == 'FINNIFTY':
+                                bot_state['simulated_base_price'] = 22000.0
+                            elif index_name == 'MIDCPNIFTY':
+                                bot_state['simulated_base_price'] = 12500.0
+                            else:
+                                bot_state['simulated_base_price'] = 70000.0  # SENSEX
+                    # Apply a small random tick to keep movement realistic
+                    from random import choice
+                    tick_change = choice([-15, -10, -5, -2, 0, 2, 5, 10, 15])
+                    bot_state['simulated_base_price'] += tick_change
+                    index_ltp = round(bot_state['simulated_base_price'], 2)
+                    bot_state['index_ltp'] = index_ltp
                 if provider != 'mds' and index_ltp > 0:
                     if index_ltp > high:
                         high = index_ltp
@@ -1427,7 +1460,7 @@ class TradingBot:
         }
 
         try:
-            logger.debug(f"[STATE] Preparing to broadcast state_update: index_ltp={payload['data'].get('index_ltp')} selected_index={payload['data'].get('selected_index')} daily_trades={payload['data'].get('daily_trades')}")
+            logger.info(f"[STATE] Broadcasting state_update: index_ltp={payload['data'].get('index_ltp')} selected_index={payload['data'].get('selected_index')} mds_score={payload['data'].get('mds_score')}")
             await manager.broadcast(payload)
             logger.debug("[STATE] state_update broadcast complete")
         except Exception as e:

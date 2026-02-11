@@ -414,18 +414,55 @@ async def update_config_values(updates: dict) -> dict:
     await save_config()
     logger.info(f"[CONFIG] Updated: {updated_fields}")
 
-    # If credentials changed while bot is running in live mode, re-init Dhan immediately.
-    # This prevents the bot from continuing with a stale/None Dhan client.
-    if creds_changed and bot_state.get('mode') == 'live' and bot_state.get('is_running'):
-        try:
+    # If credentials changed while bot is running, re-init Dhan immediately when appropriate.
+    # For live mode we require Dhan; for paper mode, re-init when paper is configured to use
+    # live option/quote data (`paper_use_live_option_quotes`). This prevents the bot from
+    # continuing with a stale/None Dhan client when live quotes are desired in paper runs.
+    try:
+        if creds_changed and bot_state.get('is_running'):
             bot = get_trading_bot()
-            ok = bot.initialize_dhan()
-            if ok:
-                logger.info("[CONFIG] Dhan client re-initialized after credentials update")
-            else:
-                logger.warning("[CONFIG] Dhan client NOT initialized after credentials update (check creds)")
-        except Exception as e:
-            logger.warning(f"[CONFIG] Failed to re-initialize Dhan after credentials update: {e}")
+            if bot_state.get('mode') == 'live':
+                ok = bot.initialize_dhan()
+                if ok:
+                    logger.info("[CONFIG] Dhan client re-initialized after credentials update (live)")
+                else:
+                    logger.warning("[CONFIG] Dhan client NOT initialized after credentials update (check creds)")
+            elif bot_state.get('mode') == 'paper' and bool(config.get('paper_use_live_option_quotes', True)):
+                # Attempt to initialize Dhan for quote-only usage in paper mode; non-fatal.
+                try:
+                    ok = bot.initialize_dhan()
+                    if ok:
+                        logger.info("[CONFIG] Dhan client initialized for paper live-quote usage")
+                    else:
+                        logger.warning("[CONFIG] Dhan client NOT initialized for paper live-quote usage")
+                except Exception:
+                    logger.warning("[CONFIG] Exception while initializing Dhan for paper live-quote usage")
+    except Exception as e:
+        logger.warning(f"[CONFIG] Failed to re-initialize Dhan after credentials update: {e}")
+
+    # If user changed selected index or timeframe from frontend, and bot is not running,
+    # start the bot automatically so that market data (Dhan/MDS) and ScoreEngine begin
+    # processing immediately. Start only when safe: paper mode always allowed; live
+    # mode requires Dhan credentials.
+    try:
+        if (('selected_index' in updated_fields) or ('candle_interval' in updated_fields)) and not bot_state.get('is_running'):
+            can_start = False
+            if bot_state.get('mode') == 'paper':
+                can_start = True
+            elif bot_state.get('mode') == 'live':
+                if str(config.get('dhan_access_token') or '').strip() and str(config.get('dhan_client_id') or '').strip():
+                    can_start = True
+
+            if can_start:
+                try:
+                    bot = get_trading_bot()
+                    # Start asynchronously so API response returns promptly.
+                    asyncio.create_task(bot.start())
+                    logger.info(f"[CONFIG] Auto-starting bot after index/timeframe update: Index={config.get('selected_index')} TF={config.get('candle_interval')}")
+                except Exception:
+                    logger.exception("[CONFIG] Failed to auto-start bot after config change")
+    except Exception:
+        logger.exception("[CONFIG] Error while attempting auto-start logic")
     
     return {"status": "success", "message": "Configuration updated", "updated": updated_fields}
 

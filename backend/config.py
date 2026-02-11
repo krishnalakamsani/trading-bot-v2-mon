@@ -93,11 +93,11 @@ config = {
     "target_points": 0,  # Target profit points (0 = disabled)
 
     # Market data source
-    # - 'mds'  : consume candles from the separate market-data-service (recommended for docker)
-    # - 'dhan' : fetch quotes directly via Dhan SDK
+    # - 'dhan' : fetch quotes directly via Dhan SDK (default, simpler setup)
+    # - 'mds'  : consume candles from the separate market-data-service (TimescaleDB)
     "market_data_provider": (
         (os.getenv("MARKET_DATA_PROVIDER") or "").strip().lower()
-        or ("mds" if os.getenv("MDS_BASE_URL") else "dhan")
+        or "dhan"
     ),
     "mds_base_url": (os.getenv("MDS_BASE_URL", "") or "").strip(),  # e.g. http://market-data-service:8002/v1
     "mds_poll_seconds": _env_float("MDS_POLL_SECONDS", 1.0),
@@ -120,7 +120,7 @@ config = {
     "enable_internal_market_data_service": _env_bool("ENABLE_INTERNAL_MARKET_DATA_SERVICE", False),
 
     # UI feed: keep index LTP updating even when bot is stopped (consume-only, no DB writes)
-    "enable_mds_consumer": _env_bool("ENABLE_MDS_CONSUMER", True),
+    "enable_mds_consumer": _env_bool("ENABLE_MDS_CONSUMER", False),
 
     # Paper replay (use recorded DB candles instead of synthetic)
     "paper_replay_enabled": False,
@@ -132,6 +132,9 @@ config = {
     # instead of synthetic CE/PE premiums. This never places orders.
     # Automatically falls back to synthetic pricing if Dhan is not configured.
     "paper_use_live_option_quotes": _env_bool("PAPER_USE_LIVE_OPTION_QUOTES", True),
+
+    # By default, do not prefetch historical candles from MDS on start — keep setup simple.
+    "prefetch_candles_on_start": _env_bool("PREFETCH_CANDLES_ON_START", False),
 
     # Testing
     "bypass_market_hours": False,  # If True: allow running logic outside 9:15-15:30 IST
