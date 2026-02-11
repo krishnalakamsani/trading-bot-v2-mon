@@ -51,7 +51,7 @@ const NiftyTracker = () => {
         prevLtpRef.current = marketData.ltp;
       }
     }
-  }, [marketData.ltp, marketData.supertrend_value]);
+  }, [marketData.ltp, marketData.mds_score]);
 
   const mdsDirection = String(botStatus?.mds_direction || "NONE");
   const isGreen = mdsDirection === 'CE';
@@ -63,7 +63,6 @@ const NiftyTracker = () => {
   const mdsScore = Number(botStatus?.mds_score ?? 0);
   const mdsConfidence = Number(botStatus?.mds_confidence ?? 0);
   const mdsIsChoppy = Boolean(botStatus?.mds_is_choppy);
-  const mdsDirection = String(botStatus?.mds_direction || "NONE");
   const mdsColorClass =
     mdsScore > 6 ? "text-emerald-600" : mdsScore < -6 ? "text-red-600" : "text-gray-700";
 
