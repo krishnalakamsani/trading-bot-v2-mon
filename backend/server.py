@@ -299,9 +299,9 @@ def _validate_strategy_config(cfg: dict) -> None:
     if macd_fast >= macd_slow:
         raise ValueError("macd_fast must be less than macd_slow")
 
-    ind = str(cfg.get("indicator_type", "supertrend_macd") or "").lower()
-    if ind not in ("supertrend", "supertrend_macd", "supertrend_adx", "score_mds"):
-        raise ValueError("indicator_type must be 'supertrend', 'supertrend_macd', 'supertrend_adx', or 'score_mds'")
+    ind = str(cfg.get("indicator_type", "score_mds") or "").lower()
+    if ind not in ("score_mds",):
+        raise ValueError("indicator_type must be 'score_mds'")
 
     # ADX validation (used by supertrend_adx)
     if "adx_period" in cfg and cfg["adx_period"] is not None:

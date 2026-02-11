@@ -48,8 +48,9 @@ function App() {
   });
   const [marketData, setMarketData] = useState({
     ltp: 0,
-    supertrend_signal: null,
-    supertrend_value: 0,
+    mds_score: 0,
+    mds_direction: "NONE",
+    mds_confidence: 0,
     selected_index: "NIFTY"
   });
   const [position, setPosition] = useState(null);
@@ -73,7 +74,7 @@ function App() {
     risk_per_trade: 0,
 
     // Strategy / indicators
-    indicator_type: "supertrend_macd",
+    indicator_type: "score_mds",
     supertrend_period: 7,
     supertrend_multiplier: 4,
     macd_fast: 12,
@@ -163,13 +164,14 @@ function App() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "state_update") {
+            if (data.type === "state_update") {
             const update = data.data;
             const currentConfig = configRef.current;
             setMarketData({
               ltp: update.index_ltp,
-              supertrend_signal: update.supertrend_signal,
-              supertrend_value: update.supertrend_value,
+              mds_score: update.mds_score ?? 0,
+              mds_direction: update.mds_direction ?? 'NONE',
+              mds_confidence: update.mds_confidence ?? 0,
               selected_index: update.selected_index
             });
             setBotStatus(prev => ({

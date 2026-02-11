@@ -1,13 +1,12 @@
 ## Trading Bot v2
 
-Docker Compose stack for an options trading bot with a separate market-data service and TimescaleDB-backed candle storage.
+Docker Compose stack for an options trading bot where the backend pulls market data (via Dhan) and TimescaleDB stores candles.
 
 ### Services
 
 - **frontend** (port 80): React dashboard
 - **backend** (port 8001): FastAPI trading engine + WebSocket state + small SQLite config/trades DB
-- **market-data-service (MDS)** (port 8002): FastAPI ingestion + candle builder into TimescaleDB
-- **timescaledb** (port 5432): PostgreSQL + Timescale extension (persistent market data)
+ - **timescaledb** (port 5432): PostgreSQL + Timescale extension (persistent market data)
 
 ---
 
@@ -21,7 +20,6 @@ Open:
 
 - UI: `http://localhost/`
 - Backend status: `http://localhost:8001/api/status`
-- MDS health: `http://localhost:8002/v1/health`
 
 ---
 
@@ -31,16 +29,14 @@ Open:
 
 1. Frontend Settings updates **Dhan client id** + **access token**.
 2. Backend stores them in SQLite at `backend/data/trading.db` (table: `config`).
-3. MDS reads the same SQLite DB (mounted read-only via Docker Compose) and refreshes credentials periodically.
 
-This avoids manually updating env vars every day.
+This avoids manually updating env vars every day; the backend will use stored credentials to fetch quotes.
 
 ### 2) Market data flow
 
-1. MDS fetches index quotes (Dhan SDK) and builds candles (default base timeframe: 5 seconds).
-2. Candles are written to TimescaleDB.
-3. Backend consumes candles from MDS HTTP endpoints and runs indicators + entry/exit logic.
-4. Backend broadcasts live state to the frontend via WebSocket.
+1. Backend fetches index quotes directly via the Dhan SDK (or configured provider) and may build/persist candles to TimescaleDB.
+2. Candles are written to TimescaleDB when enabled.
+3. Backend runs indicators + entry/exit logic and broadcasts live state to the frontend via WebSocket.
 
 ### 3) “Consume-only” backend behavior
 
@@ -68,15 +64,9 @@ The backend SQLite DB remains small and operational (config + trades).
 
 ---
 
-## Market-data-service (MDS) API
+## Market data endpoints
 
-Candles:
-
-- `GET /v1/candles/last?symbol=NIFTY&timeframe_seconds=5&limit=500`
-  - Returns candles in ascending order (oldest → newest)
-- `GET /v1/candles/range?symbol=NIFTY&timeframe_seconds=5&start=...&end=...`
-
-Backend consumption code lives in `backend/mds_client.py`.
+When using an external provider the backend will request candles via its configured API. For local setups the backend pulls directly via Dhan SDK. Consumption code lives in `backend/mds_client.py` (HTTP consumer) and `backend/mds_client.py` may be adapted for provider endpoints.
 
 ---
 
@@ -202,5 +192,5 @@ The bot typically requires:
 
 - `backend/`: backend API + trading engine
 - `frontend/`: dashboard UI
-- `market_data_service/`: ingestion + candle services + TimescaleDB
+ - `market_data_service/`: (removed) ingestion + candle service was previously a separate component; backend now handles data ingestion.
 - `docker-compose.yml`: full stack

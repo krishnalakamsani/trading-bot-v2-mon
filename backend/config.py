@@ -136,7 +136,7 @@ config = {
     # Testing
     "bypass_market_hours": False,  # If True: allow running logic outside 9:15-15:30 IST
     # Signal & Indicator Settings
-    "indicator_type": "supertrend_macd",  # supertrend | supertrend_macd | supertrend_adx | score_mds
+    "indicator_type": "score_mds",  # only score_mds is supported
     "supertrend_period": 7,
     "supertrend_multiplier": 4,
     "macd_fast": 12,

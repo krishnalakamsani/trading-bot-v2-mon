@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .score_mds import decide_entry_mds, decide_exit_mds
-from .supertrend_adx import decide_entry_supertrend_adx
-from .supertrend_macd import decide_entry_supertrend_macd, decide_exit_on_supertrend_reversal
 
 
 @dataclass(frozen=True)
@@ -21,102 +19,6 @@ class StrategyEntryDecision:
 class StrategyExitDecision:
     should_exit: bool
     reason: str = ""
-
-
-class SuperTrendMacdRunner:
-    """Decision-only runner for ST + optional MACD + optional HTF filter."""
-
-    def reset(self) -> None:
-        return
-
-    def decide_exit(self, *, position_type: str, st_direction: int, min_hold_active: bool) -> StrategyExitDecision:
-        d = decide_exit_on_supertrend_reversal(
-            position_type=str(position_type or ""),
-            st_direction=int(st_direction or 0),
-            min_hold_active=bool(min_hold_active),
-        )
-        return StrategyExitDecision(bool(d.should_exit), str(d.reason or ""))
-
-    def decide_entry(
-        self,
-        *,
-        signal: Optional[str],
-        flipped: bool,
-        trade_only_on_flip: bool,
-        htf_filter_enabled: bool,
-        candle_interval_seconds: int,
-        htf_direction: int,
-        macd_confirmation_enabled: bool,
-        macd_last: Optional[float],
-        macd_signal_line: Optional[float],
-        adx_value: Optional[float],
-        adx_threshold: float,
-    ) -> StrategyEntryDecision:
-        _ = adx_value
-        _ = adx_threshold
-        d = decide_entry_supertrend_macd(
-            signal=signal,
-            flipped=bool(flipped),
-            trade_only_on_flip=bool(trade_only_on_flip),
-            macd_confirmation_enabled=bool(macd_confirmation_enabled),
-            macd_last=macd_last,
-            macd_signal_line=macd_signal_line,
-            htf_filter_enabled=bool(htf_filter_enabled),
-            candle_interval_seconds=int(candle_interval_seconds or 0),
-            htf_direction=int(htf_direction or 0),
-        )
-        option_type = ""
-        if d.should_enter and signal:
-            option_type = "CE" if str(signal).upper() == "GREEN" else "PE"
-        return StrategyEntryDecision(bool(d.should_enter), option_type, str(d.reason or ""))
-
-
-class SuperTrendAdxRunner:
-    """Decision-only runner for ST + ADX + optional HTF filter."""
-
-    def reset(self) -> None:
-        return
-
-    def decide_exit(self, *, position_type: str, st_direction: int, min_hold_active: bool) -> StrategyExitDecision:
-        d = decide_exit_on_supertrend_reversal(
-            position_type=str(position_type or ""),
-            st_direction=int(st_direction or 0),
-            min_hold_active=bool(min_hold_active),
-        )
-        return StrategyExitDecision(bool(d.should_exit), str(d.reason or ""))
-
-    def decide_entry(
-        self,
-        *,
-        signal: Optional[str],
-        flipped: bool,
-        trade_only_on_flip: bool,
-        htf_filter_enabled: bool,
-        candle_interval_seconds: int,
-        htf_direction: int,
-        macd_confirmation_enabled: bool,
-        macd_last: Optional[float],
-        macd_signal_line: Optional[float],
-        adx_value: Optional[float],
-        adx_threshold: float,
-    ) -> StrategyEntryDecision:
-        _ = macd_confirmation_enabled
-        _ = macd_last
-        _ = macd_signal_line
-        d = decide_entry_supertrend_adx(
-            signal=signal,
-            flipped=bool(flipped),
-            trade_only_on_flip=bool(trade_only_on_flip),
-            htf_filter_enabled=bool(htf_filter_enabled),
-            candle_interval_seconds=int(candle_interval_seconds or 0),
-            htf_direction=int(htf_direction or 0),
-            adx_value=adx_value,
-            adx_threshold=float(adx_threshold or 0.0),
-        )
-        option_type = ""
-        if d.should_enter and signal:
-            option_type = "CE" if str(signal).upper() == "GREEN" else "PE"
-        return StrategyEntryDecision(bool(d.should_enter), option_type, str(d.reason or ""))
 
 
 class ScoreMdsRunner:

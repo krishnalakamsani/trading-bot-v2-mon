@@ -41,9 +41,8 @@ const Settings = () => {
   const [riskPerTrade, setRiskPerTrade] = useState(config.risk_per_trade || 0);
 
   // Strategy Parameters
-  const [indicatorType, setIndicatorType] = useState(config.indicator_type || "supertrend_macd");
-  const [supertrendPeriod, setSupertrendPeriod] = useState(config.supertrend_period || 7);
-  const [supertrendMultiplier, setSupertrendMultiplier] = useState(config.supertrend_multiplier || 4);
+  const [indicatorType, setIndicatorType] = useState(config.indicator_type || "score_mds");
+  // SuperTrend parameters are managed internally by the Score Engine; UI inputs removed.
   const [macdFast, setMacdFast] = useState(config.macd_fast || 12);
   const [macdSlow, setMacdSlow] = useState(config.macd_slow || 26);
   const [macdSignal, setMacdSignal] = useState(config.macd_signal || 9);
@@ -66,10 +65,9 @@ const Settings = () => {
   );
 
   const normalizedIndicatorType = String(indicatorType || "").trim().toLowerCase();
-  const indicatorUsesMacd = normalizedIndicatorType === "supertrend_macd" || normalizedIndicatorType === "score_mds";
-  const showMacdConfirmationToggle = normalizedIndicatorType === "supertrend_macd";
-  const showFlipAndHtfControls = normalizedIndicatorType !== "score_mds";
-  const indicatorUsesAdx = normalizedIndicatorType === "supertrend_adx";
+  const indicatorUsesMacd = normalizedIndicatorType === "score_mds";
+  const showFlipAndHtfControls = false;
+  const indicatorUsesAdx = false;
 
   // Paper replay (testing)
   const [paperReplayEnabled, setPaperReplayEnabled] = useState(!!config.paper_replay_enabled);
@@ -106,9 +104,8 @@ const Settings = () => {
       setTargetPoints(config?.target_points || 0);
       setRiskPerTrade(config?.risk_per_trade || 0);
 
-      setIndicatorType(config?.indicator_type || "supertrend_macd");
-      setSupertrendPeriod(config?.supertrend_period || 7);
-      setSupertrendMultiplier(config?.supertrend_multiplier || 4);
+      setIndicatorType(config?.indicator_type || "score_mds");
+      // SuperTrend params are preserved from backend config, UI not editable here.
       setMacdFast(config?.macd_fast || 12);
       setMacdSlow(config?.macd_slow || 26);
       setMacdSignal(config?.macd_signal || 9);
@@ -164,12 +161,12 @@ const Settings = () => {
     setSaving(true);
     await updateConfig({
       indicator_type: indicatorType,
-      supertrend_period: supertrendPeriod,
-      supertrend_multiplier: supertrendMultiplier,
+      // Keep backend SuperTrend params unchanged when saving from UI
+      supertrend_period: config?.supertrend_period,
+      supertrend_multiplier: config?.supertrend_multiplier,
       macd_fast: macdFast,
       macd_slow: macdSlow,
       macd_signal: macdSignal,
-      macd_confirmation_enabled: macdConfirmationEnabled,
 
       adx_period: adxPeriod,
       adx_threshold: adxThreshold,
@@ -859,70 +856,13 @@ const Settings = () => {
                     <SelectValue placeholder="Select strategy" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="supertrend">SuperTrend</SelectItem>
-                    <SelectItem value="supertrend_macd">SuperTrend + MACD</SelectItem>
-                    <SelectItem value="supertrend_adx">SuperTrend + ADX</SelectItem>
-                    <SelectItem value="score_mds">Score Engine (MDS)</SelectItem>
+                      <SelectItem value="score_mds">Score Engine (MDS)</SelectItem>
                   </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500">
-                  {normalizedIndicatorType === "score_mds"
-                    ? "Score Engine uses SuperTrend + MACD internally and handles confirmation."
-                    : normalizedIndicatorType === "supertrend_adx"
-                    ? "SuperTrend entries filtered by ADX (trend strength)."
-                    : normalizedIndicatorType === "supertrend"
-                    ? "SuperTrend-only entries (no MACD)."
-                    : "SuperTrend entries with MACD confirmation."}
-                </p>
+                  </Select>
+                  <p className="text-xs text-gray-500">Score Engine uses internal confirmation and MDS telemetry.</p>
               </div>
 
-              {showMacdConfirmationToggle && (
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-sm border border-gray-100">
-                  <div>
-                    <Label htmlFor="macd-confirm-toggle" className="text-sm font-medium">
-                      MACD Confirmation
-                    </Label>
-                    <p className="text-xs text-gray-500">Require MACD alignment</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-gray-500">Off</span>
-                    <Switch
-                      id="macd-confirm-toggle"
-                      checked={!!macdConfirmationEnabled}
-                      onCheckedChange={setMacdConfirmationEnabled}
-                      data-testid="macd-confirm-toggle"
-                    />
-                    <span className="text-xs font-medium text-emerald-700">On</span>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <Label htmlFor="supertrend-period">SuperTrend Period</Label>
-                <Input
-                  id="supertrend-period"
-                  type="number"
-                  min="1"
-                  value={supertrendPeriod}
-                  onChange={(e) => setSupertrendPeriod(parseInt(e.target.value) || 1)}
-                  className="mt-1 rounded-sm"
-                  data-testid="supertrend-period-input"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="supertrend-multiplier">SuperTrend Multiplier</Label>
-                <Input
-                  id="supertrend-multiplier"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  value={supertrendMultiplier}
-                  onChange={(e) => setSupertrendMultiplier(parseFloat(e.target.value) || 0.1)}
-                  className="mt-1 rounded-sm"
-                  data-testid="supertrend-multiplier-input"
-                />
-              </div>
+              {/* SuperTrend UI removed — Score Engine is the only supported strategy */}
 
               {indicatorUsesMacd && (
                 <>

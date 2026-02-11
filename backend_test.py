@@ -150,7 +150,7 @@ class NiftyAlgoAPITester:
         )
         
         if success and data:
-            required_fields = ['ltp', 'supertrend_signal', 'supertrend_value', 'selected_index']
+            required_fields = ['ltp', 'mds_score', 'mds_direction', 'selected_index']
             missing_fields = [field for field in required_fields if field not in data]
             if missing_fields:
                 success = False

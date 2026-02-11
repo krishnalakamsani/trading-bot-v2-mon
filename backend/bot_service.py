@@ -75,16 +75,16 @@ def get_bot_status() -> dict:
 def get_market_data() -> dict:
     """Get current market data"""
     from datetime import datetime, timezone
-    
     return {
         "ltp": bot_state['index_ltp'],
-        "supertrend_signal": bot_state['last_supertrend_signal'],
-        "supertrend_value": bot_state['supertrend_value'],
-        "htf_supertrend_signal": bot_state.get('htf_supertrend_signal'),
-        "htf_supertrend_value": bot_state.get('htf_supertrend_value', 0.0),
-        "macd_value": bot_state['macd_value'],
-        "signal_status": bot_state['signal_status'],
-        "htf_signal_status": bot_state.get('htf_signal_status', 'waiting'),
+        # Score Engine telemetry (preferred single strategy)
+        "mds_score": bot_state.get('mds_score', 0.0),
+        "mds_slope": bot_state.get('mds_slope', 0.0),
+        "mds_acceleration": bot_state.get('mds_acceleration', 0.0),
+        "mds_stability": bot_state.get('mds_stability', 0.0),
+        "mds_confidence": bot_state.get('mds_confidence', 0.0),
+        "mds_is_choppy": bot_state.get('mds_is_choppy', False),
+        "mds_direction": bot_state.get('mds_direction', 'NONE'),
         "selected_index": config['selected_index'],
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -376,7 +376,7 @@ async def update_config_values(updates: dict) -> dict:
     
     if updates.get('indicator_type') is not None:
         new_indicator = str(updates['indicator_type']).lower()
-        if new_indicator in ('supertrend', 'supertrend_macd', 'supertrend_adx', 'score_mds'):
+        if new_indicator in ('score_mds',):
             config['indicator_type'] = new_indicator
             updated_fields.append('indicator_type')
             logger.info(f"[CONFIG] Indicator changed to: {new_indicator}")
@@ -384,7 +384,7 @@ async def update_config_values(updates: dict) -> dict:
             bot = get_trading_bot()
             bot._initialize_indicator()
         else:
-            logger.warning(f"[CONFIG] Invalid indicator: {new_indicator}. Supported: 'supertrend', 'supertrend_macd', 'supertrend_adx', 'score_mds'")
+            logger.warning(f"[CONFIG] Invalid indicator: {new_indicator}. Supported: 'score_mds'")
 
     if updates.get('macd_confirmation_enabled') is not None:
         config['macd_confirmation_enabled'] = str(updates['macd_confirmation_enabled']).lower() in ('true', '1', 'yes')

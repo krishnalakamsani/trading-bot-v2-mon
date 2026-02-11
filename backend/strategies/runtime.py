@@ -88,7 +88,5 @@ class ScoreMdsRuntime(StrategyRuntime):
 
 
 def build_strategy_runtime(indicator_type: Optional[str]) -> StrategyRuntime:
-    it = str(indicator_type or '').strip().lower()
-    if it == 'score_mds':
-        return ScoreMdsRuntime()
-    return SuperTrendRuntime()
+    # Always return the ScoreMds runtime — only score strategy is supported now.
+    return ScoreMdsRuntime()

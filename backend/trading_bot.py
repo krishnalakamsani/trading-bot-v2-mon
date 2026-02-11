@@ -12,8 +12,8 @@ from indices import get_index_config, round_to_strike
 from utils import get_ist_time, is_market_open, can_take_new_trade, should_force_squareoff, format_timeframe
 from indicators import SuperTrend, MACD, ADX
 from score_engine import ScoreEngine, Candle
-from strategies.runner import ScoreMdsRunner, SuperTrendAdxRunner, SuperTrendMacdRunner
-from strategies.runtime import ClosedCandleContext, ScoreMdsRuntime, SuperTrendRuntime, build_strategy_runtime
+from strategies.runner import ScoreMdsRunner
+from strategies.runtime import ClosedCandleContext, ScoreMdsRuntime, build_strategy_runtime
 from dhan_api import DhanAPI
 from database import save_trade, update_trade_exit
 
@@ -545,11 +545,8 @@ class TradingBot:
             self._initialize_strategy_runners()
 
     def _initialize_strategy_runners(self) -> None:
-        indicator_type = str(config.get('indicator_type', 'supertrend_macd') or '').strip().lower()
-        if indicator_type == 'supertrend_adx':
-            self._st_runner = SuperTrendAdxRunner()
-        else:
-            self._st_runner = SuperTrendMacdRunner()
+        # Only ScoreMdsRunner is supported now.
+        self._st_runner = None
 
         if self._mds_runner is None:
             self._mds_runner = ScoreMdsRunner()
@@ -559,14 +556,8 @@ class TradingBot:
         self._strategy_runtime = build_strategy_runtime(config.get('indicator_type'))
 
     def _get_st_runner(self):
-        indicator_type = str(config.get('indicator_type', 'supertrend_macd') or '').strip().lower()
-        if indicator_type == 'supertrend_adx':
-            if not isinstance(self._st_runner, SuperTrendAdxRunner):
-                self._st_runner = SuperTrendAdxRunner()
-        else:
-            if not isinstance(self._st_runner, SuperTrendMacdRunner):
-                self._st_runner = SuperTrendMacdRunner()
-        return self._st_runner
+        # SuperTrend runners removed — return None
+        return None
 
     def _get_mds_runner(self) -> ScoreMdsRunner:
         if self._mds_runner is None:
@@ -574,18 +565,9 @@ class TradingBot:
         return self._mds_runner
 
     def _get_strategy_runtime(self):
-        indicator_type = str(config.get('indicator_type', 'supertrend_macd') or '').strip().lower()
-        if self._strategy_runtime is None:
-            self._strategy_runtime = build_strategy_runtime(indicator_type)
-            return self._strategy_runtime
-
-        if indicator_type == 'score_mds':
-            if not isinstance(self._strategy_runtime, ScoreMdsRuntime):
-                self._strategy_runtime = build_strategy_runtime(indicator_type)
-        else:
-            if not isinstance(self._strategy_runtime, SuperTrendRuntime):
-                self._strategy_runtime = build_strategy_runtime(indicator_type)
-
+        # Only ScoreMdsRuntime supported
+        if self._strategy_runtime is None or not isinstance(self._strategy_runtime, ScoreMdsRuntime):
+            self._strategy_runtime = build_strategy_runtime(config.get('indicator_type'))
         return self._strategy_runtime
     
     def reset_indicator(self):
@@ -1742,6 +1724,12 @@ class TradingBot:
     
     async def process_signal_on_close(self, signal: str, index_ltp: float, flipped: bool = False) -> bool:
         """Process SuperTrend signal on candle close"""
+        # SuperTrend-based signal processing is removed; when using ScoreMds
+        # the ScoreMdsRuntime will call `process_mds_on_close` instead.
+        indicator_type = str(config.get('indicator_type', 'score_mds') or '').strip().lower()
+        if indicator_type == 'score_mds':
+            return False
+
         exited = False
         index_name = config['selected_index']
         index_config = get_index_config(index_name)

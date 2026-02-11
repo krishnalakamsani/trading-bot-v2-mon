@@ -34,7 +34,8 @@ const NiftyTracker = () => {
             second: "2-digit",
           }),
           price: marketData.ltp,
-          supertrend: marketData.supertrend_value,
+          // keep history of MDS score for reference
+          mds_score: marketData.mds_score ?? 0,
         };
 
         const updated = [...prev, newEntry].slice(-60); // Keep last 60 data points
@@ -52,7 +53,8 @@ const NiftyTracker = () => {
     }
   }, [marketData.ltp, marketData.supertrend_value]);
 
-  const isGreen = marketData.ltp > marketData.supertrend_value;
+  const mdsDirection = String(botStatus?.mds_direction || "NONE");
+  const isGreen = mdsDirection === 'CE';
   const signalColor = isGreen ? "#059669" : "#DC2626";
   const selectedIndex = config.selected_index || "NIFTY";
   const candleInterval = botStatus.candle_interval || config.candle_interval || 5;
@@ -108,17 +110,12 @@ const NiftyTracker = () => {
             </div>
           )}
 
-          {/* SuperTrend */}
+          {/* Signal (Score Engine) */}
           <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-sm border border-gray-200">
             <div>
-              <p className="label-text text-xs mb-1">SuperTrend</p>
-              <p className="text-xl font-mono font-bold" style={{ color: isGreen ? "#059669" : "#DC2626" }} data-testid="supertrend-value">
-                {marketData.supertrend_value > 0
-                  ? marketData.supertrend_value.toLocaleString("en-IN", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })
-                  : "—"}
+              <p className="label-text text-xs mb-1">Signal</p>
+              <p className="text-xl font-mono font-bold" style={{ color: isGreen ? "#059669" : "#DC2626" }} data-testid="signal-direction">
+                {mdsDirection}
               </p>
             </div>
             <Circle className="w-4 h-4 flex-shrink-0" style={{ fill: isGreen ? "#059669" : "#DC2626", color: isGreen ? "#059669" : "#DC2626" }} />
@@ -154,14 +151,7 @@ const NiftyTracker = () => {
                   width={60}
                   tickFormatter={(value) => value.toFixed(0)}
                 />
-                {marketData.supertrend_value > 0 && (
-                  <ReferenceLine
-                    y={marketData.supertrend_value}
-                    stroke={signalColor}
-                    strokeDasharray="3 3"
-                    strokeWidth={1}
-                  />
-                )}
+                {/* No SuperTrend reference line when using Score Engine */}
                 <Area
                   type="monotone"
                   dataKey="price"
@@ -183,7 +173,7 @@ const NiftyTracker = () => {
         {/* Info Bar */}
         <div className="mt-3 flex items-center justify-between text-xs text-gray-500 font-mono">
           <span>Timeframe: {formatTimeframe(candleInterval)}</span>
-          <span>SuperTrend(7, 4)</span>
+          <span>Score Engine</span>
           <span>{priceHistory.length} candles</span>
         </div>
       </div>
