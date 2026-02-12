@@ -441,11 +441,18 @@ async def update_config_values(updates: dict) -> dict:
         logger.warning(f"[CONFIG] Failed to re-initialize Dhan after credentials update: {e}")
 
     # If user changed selected index or timeframe from frontend, and bot is not running,
-    # start the bot automatically so that market data (Dhan/MDS) and ScoreEngine begin
-    # processing immediately. Start only when safe: paper mode always allowed; live
-    # mode requires Dhan credentials.
+    # If user changed selected index or timeframe from frontend, and bot is not running,
+    # optionally start the bot automatically so that market data (Dhan/MDS) and ScoreEngine
+    # begin processing immediately. Auto-start is now gated by the
+    # `auto_start_on_config_change` flag (default: False) to avoid surprising behaviour
+    # when users merely change UI selections.
     try:
         if (('selected_index' in updated_fields) or ('candle_interval' in updated_fields)) and not bot_state.get('is_running'):
+            if not bool(config.get('auto_start_on_config_change', False)):
+                logger.debug("[CONFIG] Auto-start disabled by config (auto_start_on_config_change=False)")
+                # Skip auto-start unless explicitly enabled by config
+                await save_config()
+                return {"status": "success", "message": "Configuration updated", "updated": updated_fields}
             can_start = False
             if bot_state.get('mode') == 'paper':
                 can_start = True
