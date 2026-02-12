@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from collections import deque
 from math import sqrt
 from typing import Deque, Dict, Optional, Tuple
+from copy import deepcopy
 
 from indicators import SuperTrend, MACD
 
@@ -181,11 +182,23 @@ class ScoreEngine:
         completed = self._aggregate(next_tf, candle)
         if completed is not None:
             tf_scores[next_tf] = self._update_tf(next_tf, completed)
+        else:
+            # If next-TF candle not yet completed, attempt a non-mutating "peek"
+            # using the partial aggregated values so the next timeframe contributes
+            # a best-effort weighted score without mutating live indicator state.
+            state = self._agg_partial.get(next_tf, {})
+            if state and state.get("count", 0) > 0:
+                partial = Candle(high=float(state["high"]), low=float(state["low"]), close=float(state["close"]))
+                # Use a deepcopy of the TFIndicators to avoid mutating real state
+                peek_state = deepcopy(self._tfs[next_tf])
+                tf_scores[next_tf] = self._compute_tf_score_from_state(peek_state, next_tf, partial)
 
-        # Compute total score using last-known TF scores (slow TF persists between updates)
+        # Compute total score using the freshest TF scores available: prefer
+        # the scores computed this tick (including a partial peek), otherwise
+        # fall back to the last persisted TF score.
         total_score = 0.0
         for tf in self.timeframes:
-            total_score += self._last_tf_score(tf).weighted_score
+            total_score += (tf_scores.get(tf) or self._last_tf_score(tf)).weighted_score
 
         prev_score = self._score_history[-1] if self._score_history else None
         slope = 0.0 if prev_score is None else (total_score - prev_score)
@@ -251,7 +264,17 @@ class ScoreEngine:
         return self._last_scores.get(tf) or self._neutral_tf_score(tf)
 
     def _update_tf(self, tf: int, candle: Candle) -> TFScore:
+        # Delegate core scoring to a pure helper that can operate on any TFIndicators
+        # state (including deep-copies) so we can peek without mutating live state.
         state = self._tfs[tf]
+        out = self._compute_tf_score_from_state(state, tf, candle)
+        # Persist latest TF score when we actually update the real timeframe
+        self._last_scores[tf] = out
+        return out
+
+    def _compute_tf_score_from_state(self, state: TFIndicators, tf: int, candle: Candle) -> TFScore:
+        # This mirrors the logic from the original _update_tf but operates on the
+        # provided `state` object and DOES NOT persist results to self._last_scores.
         close = candle.close
 
         st_value, st_signal = state.supertrend.add_candle(candle.high, candle.low, close)
@@ -387,7 +410,6 @@ class ScoreEngine:
             weighted_score=weighted,
             st_direction=st_dir,
         )
-        self._last_scores[tf] = out
         return out
 
     def _ready_timeframes(self) -> set[int]:
