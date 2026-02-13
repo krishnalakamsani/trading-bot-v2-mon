@@ -102,9 +102,10 @@ class ScoreEngine:
         self.timeframes = (self.base_tf, self._next_tf(self.base_tf))
 
         # Weights: selected TF + next TF only
+        # Increase next-TF weight to give higher-timeframe more influence
         self.tf_weights = {
             self.timeframes[0]: 1.0,
-            self.timeframes[1]: 2.0,
+            self.timeframes[1]: 3.0,
         }
 
         # Bonus score knobs (added on top of the base MACD/HIST/ST scoring).
@@ -135,6 +136,11 @@ class ScoreEngine:
         self._agg_partial: Dict[int, dict] = {self.timeframes[1]: {}}
         self._score_history: Deque[float] = deque(maxlen=max(60, self.chop_window * 5))
         self._slope_history: Deque[float] = deque(maxlen=max(60, self.chop_window * 5))
+
+        # EWMA smoothing for total score to reduce volatility. Alpha in (0,1]
+        # Lower alpha => stronger smoothing. Default 0.4 provides moderate smoothing.
+        self.score_smoothing_alpha = float(bonus_macd_cross or 0.4) if False else 0.4
+        self._score_ewma: Optional[float] = None
 
         # Persist last computed TFScore per timeframe so higher-TF contribution remains
         # stable between its candle completions.
@@ -200,19 +206,28 @@ class ScoreEngine:
         for tf in self.timeframes:
             total_score += (tf_scores.get(tf) or self._last_tf_score(tf)).weighted_score
 
+        # Apply EWMA smoothing to reduce volatile tick-to-tick changes.
+        alpha = max(0.0, min(1.0, getattr(self, 'score_smoothing_alpha', 0.4)))
+        if self._score_ewma is None:
+            smoothed_score = total_score
+        else:
+            smoothed_score = alpha * total_score + (1.0 - alpha) * self._score_ewma
+        self._score_ewma = smoothed_score
+
         prev_score = self._score_history[-1] if self._score_history else None
-        slope = 0.0 if prev_score is None else (total_score - prev_score)
+        slope = 0.0 if prev_score is None else (smoothed_score - prev_score)
         prev_slope = self._slope_history[-1] if self._slope_history else None
         acceleration = 0.0 if prev_slope is None else (slope - prev_slope)
 
-        self._score_history.append(total_score)
+        # Use smoothed score when storing history and computing stability/slope/confidence
+        self._score_history.append(smoothed_score)
         self._slope_history.append(slope)
 
         stability = self._stddev(list(self._score_history)[-self.chop_window:]) if len(self._score_history) >= 5 else 0.0
         is_choppy = self._detect_chop()
 
-        confidence = self._confidence(total_score, slope, stability, tf_scores, is_choppy)
-        direction = self._direction(total_score)
+        confidence = self._confidence(smoothed_score, slope, stability, tf_scores, is_choppy)
+        direction = self._direction(smoothed_score)
 
         ready_tfs = tuple(sorted(self._ready_timeframes()))
         ready = all(tf in ready_tfs for tf in self.timeframes)
@@ -221,7 +236,7 @@ class ScoreEngine:
         snapshot_tf_scores = {tf: self._last_tf_score(tf) for tf in self.timeframes}
 
         return MDSnapshot(
-            score=round(total_score, 3),
+            score=round(smoothed_score, 3),
             slope=round(slope, 3),
             acceleration=round(acceleration, 3),
             stability=round(stability, 3),
