@@ -41,7 +41,10 @@ def decide_exit_mds(*, position_type: str, score: float, slope: float, slow_mom:
                     should_exit = True
                     reason = "MDS Reversal (slow confirm)"
             elif neutral:
-                if abs(slow_mom) <= 1.0:
+                # Only exit for neutral when slow momentum is near-zero AND
+                # the short-term slope does not indicate continued upward pressure.
+                # This avoids exiting winners when the trend is still rising.
+                if abs(slow_mom) <= 1.0 and slope <= 0.0:
                     should_exit = True
                     reason = "MDS Neutral (slow confirm)"
             elif slope <= -2.0 and score < 12.0:
@@ -55,7 +58,8 @@ def decide_exit_mds(*, position_type: str, score: float, slope: float, slow_mom:
                     should_exit = True
                     reason = "MDS Reversal (slow confirm)"
             elif neutral:
-                if abs(slow_mom) <= 0.5:
+                # Tuned: require slope to be non-positive for CE neutral exit
+                if abs(slow_mom) <= 0.5 and slope <= 0.0:
                     should_exit = True
                     reason = "MDS Neutral (slow confirm)"
             elif slope <= -2.5 and score < 12.0:
@@ -71,7 +75,8 @@ def decide_exit_mds(*, position_type: str, score: float, slope: float, slow_mom:
                     should_exit = True
                     reason = "MDS Reversal (slow confirm)"
             elif neutral:
-                if abs(slow_mom) <= 1.0:
+                # For PE positions, require slope to be non-negative to confirm neutral exit
+                if abs(slow_mom) <= 1.0 and slope >= 0.0:
                     should_exit = True
                     reason = "MDS Neutral (slow confirm)"
             elif slope >= 2.0 and score > -12.0:
@@ -85,7 +90,7 @@ def decide_exit_mds(*, position_type: str, score: float, slope: float, slow_mom:
                     should_exit = True
                     reason = "MDS Reversal (slow confirm)"
             elif neutral:
-                if abs(slow_mom) <= 0.5:
+                if abs(slow_mom) <= 0.5 and slope >= 0.0:
                     should_exit = True
                     reason = "MDS Neutral (slow confirm)"
             elif slope >= 2.5 and score > -12.0:
