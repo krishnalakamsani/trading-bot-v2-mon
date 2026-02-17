@@ -1680,8 +1680,10 @@ class TradingBot:
             qty = config['order_qty'] * index_config['lot_size']
         profit_points = current_ltp - self.entry_price
         
-        # Check target first (if enabled)
+        # Only fixed SL and target exits
         target_points = config.get('target_points', 0)
+        sl_points = config.get('initial_stoploss', 0)
+        # Target exit
         if target_points > 0 and profit_points >= target_points:
             pnl = profit_points * qty
             logger.info(
@@ -1689,17 +1691,14 @@ class TradingBot:
             )
             closed = await self.close_position(current_ltp, pnl, "Target Hit")
             return bool(closed)
-        
-        # Update trailing SL
-        await self.check_trailing_sl(current_ltp)
-        
-        # Check trailing SL
-        if self.trailing_sl and current_ltp <= self.trailing_sl:
-            pnl = (current_ltp - self.entry_price) * qty
-            logger.info(f"[EXIT] Trailing SL hit | LTP={current_ltp:.2f} | SL={self.trailing_sl:.2f}")
-            closed = await self.close_position(current_ltp, pnl, "Trailing SL Hit")
+        # Fixed SL exit
+        if sl_points > 0 and profit_points <= -sl_points:
+            pnl = profit_points * qty
+            logger.info(
+                f"[EXIT] Stop-loss hit | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | Loss={profit_points:.2f} pts | SL={sl_points:.2f} pts"
+            )
+            closed = await self.close_position(current_ltp, pnl, "Stop-loss Hit")
             return bool(closed)
-        
         return False
     
     async def check_tick_sl(self, current_ltp: float) -> bool:
@@ -1714,45 +1713,23 @@ class TradingBot:
         profit_points = current_ltp - self.entry_price
         pnl = profit_points * qty
         
-        # Check DAILY max loss FIRST (highest priority)
-        daily_max_loss = config.get('daily_max_loss', 0)
-        if daily_max_loss > 0 and bot_state['daily_pnl'] + pnl < -daily_max_loss:
-            logger.warning(
-                f"[EXIT] ✗ Daily max loss BREACHED! | Current Daily P&L=₹{bot_state['daily_pnl']:.2f} | This trade P&L=₹{pnl:.2f} | Limit=₹{-daily_max_loss:.2f} | FORCE SQUAREOFF"
-            )
-            closed = await self.close_position(current_ltp, pnl, "Daily Max Loss")
-            if closed:
-                bot_state['daily_max_loss_triggered'] = True
-            return bool(closed)
-        
-        # Check max loss per trade (if enabled)
-        max_loss_per_trade = config.get('max_loss_per_trade', 0)
-        if max_loss_per_trade > 0 and pnl < -max_loss_per_trade:
-            logger.info(
-                f"[EXIT] Max loss per trade hit | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | Loss=₹{abs(pnl):.2f} | Limit=₹{max_loss_per_trade:.2f}"
-            )
-            closed = await self.close_position(current_ltp, pnl, "Max Loss Per Trade")
-            return bool(closed)
-
-        # Check target (if enabled)
+        # Only fixed SL and target exits
         target_points = config.get('target_points', 0)
+        sl_points = config.get('initial_stoploss', 0)
+        # Target exit
         if target_points > 0 and profit_points >= target_points:
             logger.info(
                 f"[EXIT] Target hit (tick) | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | Profit={profit_points:.2f} pts | Target={target_points:.2f} pts"
             )
             closed = await self.close_position(current_ltp, pnl, "Target Hit")
             return bool(closed)
-        
-        # Update trailing SL values
-        await self.check_trailing_sl(current_ltp)
-        
-        # Check if trailing SL is breached
-        if self.trailing_sl and current_ltp <= self.trailing_sl:
-            pnl = (current_ltp - self.entry_price) * qty
-            logger.info(f"[EXIT] Trailing SL hit (tick) | LTP={current_ltp:.2f} | SL={self.trailing_sl:.2f}")
-            closed = await self.close_position(current_ltp, pnl, "Trailing SL Hit")
+        # Fixed SL exit
+        if sl_points > 0 and profit_points <= -sl_points:
+            logger.info(
+                f"[EXIT] Stop-loss hit (tick) | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | Loss={profit_points:.2f} pts | SL={sl_points:.2f} pts"
+            )
+            closed = await self.close_position(current_ltp, pnl, "Stop-loss Hit")
             return bool(closed)
-        
         return False
     
     async def process_signal_on_close(self, signal: str, index_ltp: float, flipped: bool = False) -> bool:
@@ -1774,36 +1751,10 @@ class TradingBot:
         
         runner = self._get_st_runner()
 
-        # Check for exit on SuperTrend direction reversal (PRIMARY exit trigger)
-        # Exit based on SuperTrend direction change - this is the critical signal
-        if self.current_position:
-            position_type = self.current_position.get('option_type', '')
-            # Get current SuperTrend direction from indicator
-            st_direction = getattr(self.indicator, 'direction', 0)
-
-            exit_decision = runner.decide_exit(
-                position_type=str(position_type or ''),
-                st_direction=int(st_direction or 0),
-                min_hold_active=bool(self._min_hold_active()),
-            )
-
-            if exit_decision.should_exit:
-                exit_price = bot_state['current_option_ltp']
-                pnl = (exit_price - self.entry_price) * qty
-                if position_type == 'CE':
-                    logger.warning(f"[SIGNAL] ✗ REVERSAL: SuperTrend flipped RED - Exiting CE position IMMEDIATELY | P&L=₹{pnl:.2f}")
-                else:
-                    logger.warning(f"[SIGNAL] ✗ REVERSAL: SuperTrend flipped GREEN - Exiting PE position IMMEDIATELY | P&L=₹{pnl:.2f}")
-
-                closed = await self.close_position(exit_price, pnl, exit_decision.reason)
-                exited = bool(closed)
-                if closed:
-                    self.last_signal = None
-        
-        # Check if new trade allowed
+        # Remove only momentum/score exits, keep trailing SL/target exits
         if self.current_position:
             logger.info("[ENTRY_DECISION] NO | Reason=position_open")
-            return exited
+            return False
 
         # Enforce order cooldown between any two orders (prevents exit->entry flip too fast)
         if not self._can_place_new_entry_order():
@@ -1948,45 +1899,12 @@ class TradingBot:
         
         # Get expiry
         expiry = await self.dhan.get_nearest_expiry(index_name) if self.dhan else None
-        if not expiry:
-            ist = get_ist_time()
-            expiry_day = index_config['expiry_day']
-            days_until_expiry = (expiry_day - ist.weekday()) % 7
-            if days_until_expiry == 0 and ist.hour >= 15:
-                days_until_expiry = 7
-            expiry_date = ist + timedelta(days=days_until_expiry)
-            expiry = expiry_date.strftime("%Y-%m-%d")
-        
-        entry_price = 0
-        security_id = ""
-        
-        # Paper mode
-        if bot_state['mode'] == 'paper':
-            used_live_quote = False
-
-            # When market is open (and configured), paper trades should use LIVE option quotes.
-            # This never places an order; it only affects pricing.
-            if self._paper_should_use_live_option_quotes():
-                if not self.dhan:
-                    try:
-                        self.initialize_dhan()
-                    except Exception:
-                        pass
-
-                if self.dhan:
-                    try:
-                        security_id = await self.dhan.get_atm_option_security_id(index_name, strike, option_type, expiry)
-                        if security_id:
-                            option_ltp = await self.dhan.get_option_ltp(
-                                security_id=security_id,
-                                strike=strike,
-                                option_type=option_type,
-                                expiry=expiry,
-                                index_name=index_name,
-                            )
-                            if option_ltp and float(option_ltp) > 0:
-                                entry_price = round(float(option_ltp) / 0.05) * 0.05
-                                entry_price = round(float(entry_price), 2)
+        # Remove only score/momentum exits, keep trailing SL/target exits
+        if self.current_position:
+            # Respect min-hold to avoid churn
+            if self._min_hold_active():
+                return False
+            return False
                                 used_live_quote = True
                     except Exception as e:
                         logger.debug(f"[ENTRY] PAPER live-quote failed: {e}")

@@ -507,6 +507,13 @@ async def set_trading_mode(mode: str) -> dict:
         except Exception:
             pass
 
+    # Broadcast bot state to websocket clients after mode change
+    try:
+        bot = get_trading_bot()
+        await bot.broadcast_state()
+    except Exception as e:
+        logger.warning(f"[WS] Failed to broadcast state after mode change: {e}")
+
     return {"status": "success", "mode": mode}
 
 
