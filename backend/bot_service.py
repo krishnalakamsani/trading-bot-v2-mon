@@ -507,9 +507,36 @@ async def set_trading_mode(mode: str) -> dict:
         except Exception:
             pass
 
+    # Clear any mode-specific cached market state so websocket clients get fresh values
+    try:
+        bot_state['index_ltp'] = 0.0
+        bot_state['current_option_ltp'] = 0.0
+        bot_state['entry_price'] = 0.0
+        bot_state['trailing_sl'] = None
+        bot_state['simulated_base_price'] = None
+        logger.debug(f"[CONFIG] Cleared cached market state after mode change -> {mode}")
+    except Exception:
+        logger.debug("[CONFIG] Failed to clear cached market state after mode change")
+
     # Broadcast bot state to websocket clients after mode change
     try:
         bot = get_trading_bot()
+        # Try to prime fresh market data when switching to live (if possible)
+        if mode == 'live':
+            try:
+                if getattr(bot, 'initialize_dhan', None):
+                    bot.initialize_dhan()
+                if getattr(bot, 'dhan', None):
+                    try:
+                        idx = config.get('selected_index')
+                        index_ltp = await asyncio.to_thread(bot.dhan.get_index_ltp, idx)
+                        if index_ltp and index_ltp > 0:
+                            bot_state['index_ltp'] = float(index_ltp)
+                    except Exception:
+                        logger.debug("[CONFIG] Failed to prime index_ltp after switching to live")
+            except Exception:
+                logger.debug("[CONFIG] initialize_dhan failed while priming live mode")
+
         await bot.broadcast_state()
     except Exception as e:
         logger.warning(f"[WS] Failed to broadcast state after mode change: {e}")

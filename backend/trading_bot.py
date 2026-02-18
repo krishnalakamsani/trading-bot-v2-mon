@@ -425,9 +425,11 @@ class TradingBot:
             )
             if not option_ltp or float(option_ltp) <= 0:
                 return False
-
             option_ltp = round(float(option_ltp) / 0.05) * 0.05
             option_ltp = round(float(option_ltp), 2)
+
+            # Debug: log SIM->LIVE upgrade quote
+            logger.debug(f"[PAPER] SIM->LIVE option_ltp fetched: SecID={live_security_id} LTP={option_ltp} Index={index_name}")
 
             self.current_position['security_id'] = str(live_security_id)
             bot_state['current_position'] = self.current_position
@@ -436,6 +438,10 @@ class TradingBot:
             logger.info(
                 f"[PAPER] SIM->LIVE quotes enabled | {index_name} {option_type} {strike} | SecID: {live_security_id} | LTP: {option_ltp}"
             )
+            try:
+                await self.check_trailing_sl(bot_state['current_option_ltp'])
+            except Exception:
+                logger.debug("[SL] check_trailing_sl failed during SIM->LIVE upgrade")
             return True
         except Exception as e:
             logger.debug(f"[PAPER] SIM->LIVE upgrade failed: {e}")
@@ -1093,6 +1099,15 @@ class TradingBot:
                                 simulated_ltp = round(simulated_ltp / 0.05) * 0.05
                                 simulated_ltp = max(0.05, round(simulated_ltp, 2))
                                 bot_state['current_option_ltp'] = simulated_ltp
+                                try:
+                                    await self.check_trailing_sl(bot_state['current_option_ltp'])
+                                except Exception:
+                                    logger.debug("[SL] check_trailing_sl failed during simulated option LTP update (non-MDS)")
+                                logger.debug(f"[PAPER] simulated option_ltp update: SecID={security_id} SimLTP={simulated_ltp}")
+                                try:
+                                    await self.check_trailing_sl(bot_state['current_option_ltp'])
+                                except Exception:
+                                    logger.debug("[SL] check_trailing_sl failed during simulated option update")
 
                     await self.broadcast_state()
                     speed = float(config.get('paper_replay_speed', 10.0) or 10.0)
@@ -1166,7 +1181,13 @@ class TradingBot:
                                 )
                                 if option_ltp and option_ltp > 0:
                                     option_ltp = round(option_ltp / 0.05) * 0.05
-                                    bot_state['current_option_ltp'] = round(option_ltp, 2)
+                                    option_ltp = round(option_ltp, 2)
+                                    bot_state['current_option_ltp'] = option_ltp
+                                    logger.debug(f"[MARKET] Dhan option LTP update: SecID={option_security_id} LTP={option_ltp}")
+                                    try:
+                                        await self.check_trailing_sl(bot_state['current_option_ltp'])
+                                    except Exception:
+                                        logger.debug("[SL] check_trailing_sl failed after Dhan option LTP update")
                             except Exception:
                                 pass
 
@@ -1242,7 +1263,13 @@ class TradingBot:
                             bot_state['index_ltp'] = index_ltp
                         if option_ltp > 0:
                             option_ltp = round(option_ltp / 0.05) * 0.05
-                            bot_state['current_option_ltp'] = round(option_ltp, 2)
+                            option_ltp = round(option_ltp, 2)
+                            bot_state['current_option_ltp'] = option_ltp
+                            logger.debug(f"[MARKET] Dhan index+option LTP: SecID={option_security_id} LTP={option_ltp} IndexLTP={index_ltp}")
+                            try:
+                                await self.check_trailing_sl(bot_state['current_option_ltp'])
+                            except Exception:
+                                logger.debug("[SL] check_trailing_sl failed after Dhan index+option update")
                     else:
                         index_ltp = await asyncio.to_thread(self.dhan.get_index_ltp, index_name)
                         if index_ltp > 0:
@@ -1503,19 +1530,10 @@ class TradingBot:
             except Exception:
                 slow_mom = 0.0
 
-            exit_decision = runner.decide_exit(position_type=str(position_type or ''), score=score, slope=slope, slow_mom=slow_mom)
-            if exit_decision.should_exit:
-                exit_price = bot_state['current_option_ltp']
-                pnl = (exit_price - self.entry_price) * qty
-                logger.warning(
-                    f"[MDS] ✗ EXIT | {position_type} | Score={score:.2f} Slope={slope:.2f} SlowMom={slow_mom:.1f} | Reason={exit_decision.reason} | P&L=₹{pnl:.2f}"
-                )
-                closed = await self.close_position(exit_price, pnl, exit_decision.reason)
-                exited = bool(closed)
-                if closed:
-                    self.last_signal = None
-
-            return exited
+            # NOTE: Momentum/score-based exits intentionally disabled.
+            # We keep only fixed SL, target and trailing SL as exit mechanisms.
+            logger.info("[MDS] Score/momentum exits disabled - skipping MDS-driven exit checks")
+            return False
 
         # No position: entry logic
 
@@ -1899,29 +1917,54 @@ class TradingBot:
         
         # Get expiry
         expiry = await self.dhan.get_nearest_expiry(index_name) if self.dhan else None
-        # Remove only score/momentum exits, keep trailing SL/target exits
-        if self.current_position:
-            # Respect min-hold to avoid churn
-            if self._min_hold_active():
-                return False
-            return False
-                                used_live_quote = True
-                    except Exception as e:
-                        logger.debug(f"[ENTRY] PAPER live-quote failed: {e}")
 
-            # Fallback: fully synthetic option premium (SIM_*)
+        entry_price = 0.0
+        security_id = None
+
+        # PAPER MODE
+        if bot_state['mode'] == 'paper':
+            used_live_quote = False
+
+            try:
+                if self._paper_should_use_live_option_quotes() and self.dhan:
+                    security_id = await self.dhan.get_atm_option_security_id(
+                        index_name, strike, option_type, expiry
+                    )
+
+                    if security_id:
+                        option_ltp = await self.dhan.get_option_ltp(
+                            security_id=security_id,
+                            strike=strike,
+                            option_type=option_type,
+                            expiry=expiry,
+                            index_name=index_name
+                        )
+
+                        if option_ltp and float(option_ltp) > 0:
+                            entry_price = round(float(option_ltp) / 0.05) * 0.05
+                            entry_price = round(entry_price, 2)
+                            used_live_quote = True
+                            logger.debug(f"[ENTRY] PAPER live-quote fetched: SecID={security_id} LTP={entry_price} Strike={strike} OptType={option_type} Index={index_name}")
+
+            except Exception as e:
+                logger.debug(f"[ENTRY] PAPER live-quote failed: {e}")
+
+            # Fallback to synthetic pricing
             if not used_live_quote:
                 security_id = f"SIM_{index_name}_{strike}_{option_type}"
-                if entry_price <= 0:
-                    distance = abs(index_ltp - strike)
-                    intrinsic = max(0, index_ltp - strike) if option_type == 'CE' else max(0, strike - index_ltp)
-                    time_value = 150 * max(0, 1 - (distance / 500))
-                    entry_price = round((intrinsic + time_value) / 0.05) * 0.05
-                    entry_price = round(entry_price, 2)
+
+                distance = abs(index_ltp - strike)
+                intrinsic = max(0, index_ltp - strike) if option_type == 'CE' else max(0, strike - index_ltp)
+                time_value = 150 * max(0, 1 - (distance / 500))
+
+                entry_price = intrinsic + time_value
+                entry_price = round(entry_price / 0.05) * 0.05
+                entry_price = round(entry_price, 2)
 
             label = "PAPER(LIVE-QUOTE)" if used_live_quote else "PAPER(SYNTHETIC)"
             logger.info(
-                f"[ENTRY] {label} | {index_name} {option_type} {strike} | Expiry: {expiry} | Price: {entry_price} | Qty: {qty} | SecID: {security_id}"
+                f"[ENTRY] {label} | {index_name} {option_type} {strike} | "
+                f"Expiry: {expiry} | Price: {entry_price} | Qty: {qty} | SecID: {security_id}"
             )
         
         # Live mode
@@ -1943,7 +1986,8 @@ class TradingBot:
                 if not security_id:
                     logger.error(f"[ERROR] Could not find security ID for {index_name} {strike} {option_type}")
                     return
-
+                    # Debug: log resolved security and index price
+                    logger.debug(f"[ENTRY] LIVE resolved SecID={security_id} Strike={strike} OptType={option_type} Index={index_name}")
                 option_ltp = await self.dhan.get_option_ltp(
                     security_id=security_id,
                     strike=strike,
@@ -1988,6 +2032,7 @@ class TradingBot:
             if avg_price > 0:
                 entry_price = round(avg_price / 0.05) * 0.05
                 entry_price = round(entry_price, 2)
+                logger.debug(f"[ENTRY] LIVE order fill average price: OrderID={order_id} FillPrice={entry_price} SecID={security_id}")
             
             logger.info(
                 f"[ENTRY] LIVE | {index_name} {option_type} {strike} | Expiry: {expiry} | OrderID: {order_id} | Fill Price: {entry_price} | Qty: {qty}"
@@ -2017,6 +2062,11 @@ class TradingBot:
         bot_state['entry_price'] = self.entry_price
         bot_state['daily_trades'] += 1
         bot_state['current_option_ltp'] = entry_price
+        logger.debug(f"[ENTRY] setting current_option_ltp to entry_price: TradeID={trade_id} EntryPrice={entry_price} Mode={bot_state['mode']}")
+        try:
+            await self.check_trailing_sl(bot_state['current_option_ltp'])
+        except Exception:
+            logger.debug("[SL] check_trailing_sl failed after setting entry price")
         
         # ONLY set last_signal AFTER position is successfully confirmed open
         self.last_signal = option_type[0].upper() + 'E'  # 'CE' -> 'C', 'PE' -> 'P'
