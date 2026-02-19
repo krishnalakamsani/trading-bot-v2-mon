@@ -8,6 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List
@@ -35,15 +36,18 @@ from database import (
 )
 import bot_service
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(ROOT_DIR / 'logs' / 'bot.log', mode='a')
-    ]
+# Configure logging: use a daily rotating file handler and keep only today's logs
+file_handler = TimedRotatingFileHandler(
+    filename=str(ROOT_DIR / 'logs' / 'bot.log'),
+    when='midnight',
+    interval=1,
+    backupCount=0,
+    encoding='utf-8',
 )
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
 logger = logging.getLogger(__name__)
 
 # Reduce noisy per-request logs from http clients (used for MDS polling).
@@ -448,7 +452,7 @@ async def debug_ws_test(index: str = Query(default=None)):
                     }
                 }
 
-                logger.info(f"[DEBUG] Broadcasting state_update for index={index} LTP={close_price}")
+                logger.debug(f"[DEBUG] Broadcasting state_update for index={index} LTP={close_price}")
                 await manager.broadcast(payload)
                 return JSONResponse({"status": "ok", "sent": payload})
 
@@ -465,7 +469,7 @@ async def debug_ws_test(index: str = Query(default=None)):
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         await manager.broadcast(payload)
-        logger.info("[DEBUG] Triggered test broadcast")
+        logger.debug("[DEBUG] Triggered test broadcast")
         return JSONResponse({"status": "ok", "sent": payload})
 
     except Exception as e:

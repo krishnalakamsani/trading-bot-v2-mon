@@ -41,6 +41,9 @@ const SettingsPanel = ({ onClose }) => {
   const [trailStep, setTrailStep] = useState(config.trail_step || 0);
   const [targetPoints, setTargetPoints] = useState(config.target_points || 0);
   const [riskPerTrade, setRiskPerTrade] = useState(config.risk_per_trade || 0);
+  const [maxTradeDurationMin, setMaxTradeDurationMin] = useState(
+    Math.round((config.max_trade_duration_seconds || 0) / 60)
+  );
 
   const [saving, setSaving] = useState(false);
   const isFirstRender = React.useRef(true);
@@ -287,6 +290,7 @@ const SettingsPanel = ({ onClose }) => {
       trail_start_profit: trailStart,
       trail_step: trailStep,
       target_points: targetPoints,
+        max_trade_duration_seconds: Math.max(0, Math.round((maxTradeDurationMin || 0) * 60)),
       risk_per_trade: riskPerTrade,
     });
     setSaving(false);
@@ -546,6 +550,19 @@ const SettingsPanel = ({ onClose }) => {
                   onChange={(e) => setTargetPoints(parseFloat(e.target.value))}
                   className="mt-1 rounded-sm"
                   data-testid="target-points-input"
+                />
+                <p className="text-xs text-gray-500 mt-1">0 = disabled</p>
+              </div>
+              <div>
+                <Label htmlFor="max-trade-duration">Max Trade Duration (minutes)</Label>
+                <Input
+                  id="max-trade-duration"
+                  type="number"
+                  min="0"
+                  value={maxTradeDurationMin}
+                  onChange={(e) => setMaxTradeDurationMin(parseInt(e.target.value || 0))}
+                  className="mt-1 rounded-sm"
+                  data-testid="max-trade-duration-input"
                 />
                 <p className="text-xs text-gray-500 mt-1">0 = disabled</p>
               </div>

@@ -179,6 +179,9 @@ def get_config() -> dict:
         # Exit protection
         "min_hold_seconds": int(config.get('min_hold_seconds', 15)),
 
+        # TradeLife: max allowed trade duration in seconds (0 = disabled)
+        "max_trade_duration_seconds": int(config.get('max_trade_duration_seconds', 0) or 0),
+
         # Order pacing
         "min_order_cooldown_seconds": int(config.get('min_order_cooldown_seconds', 15)),
 
@@ -289,6 +292,16 @@ async def update_config_values(updates: dict) -> dict:
         config['min_order_cooldown_seconds'] = cooldown
         updated_fields.append('min_order_cooldown_seconds')
         logger.info(f"[CONFIG] Min order cooldown set to: {config['min_order_cooldown_seconds']}s")
+
+    if updates.get('max_trade_duration_seconds') is not None:
+        # Ensure non-negative integer seconds
+        try:
+            v = max(0, int(updates['max_trade_duration_seconds']))
+        except Exception:
+            v = 0
+        config['max_trade_duration_seconds'] = v
+        updated_fields.append('max_trade_duration_seconds')
+        logger.info(f"[CONFIG] Max trade duration set to: {config['max_trade_duration_seconds']}s")
 
     if updates.get('bypass_market_hours') is not None:
         config['bypass_market_hours'] = str(updates['bypass_market_hours']).lower() in ('true', '1', 'yes')
@@ -504,6 +517,22 @@ async def set_trading_mode(mode: str) -> dict:
         try:
             bot = get_trading_bot()
             bot.dhan = None
+            # Clear internal market-data caches so run_loop doesn't keep reusing stale values
+            try:
+                bot._last_mds_candle_ts = None
+            except Exception:
+                pass
+            try:
+                bot._mds_htf_count = 0
+                bot._mds_htf_high = 0.0
+                bot._mds_htf_low = float('inf')
+                bot._mds_htf_close = 0.0
+            except Exception:
+                pass
+            try:
+                bot_state['simulated_base_price'] = None
+            except Exception:
+                pass
         except Exception:
             pass
 

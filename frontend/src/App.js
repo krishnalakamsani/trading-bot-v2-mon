@@ -93,6 +93,7 @@ function App() {
     // Exit / order pacing
     min_hold_seconds: 15,
     min_order_cooldown_seconds: 15,
+    max_trade_duration_seconds: 0,
 
     has_credentials: false,
     mode: "paper",

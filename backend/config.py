@@ -182,6 +182,10 @@ config = {
 
     # Order pacing
     "min_order_cooldown_seconds": 15,  # Minimum seconds between any two orders (entry/exit). Enforced for new entries.
+    
+    # TradeLife: maximum allowed duration of a trade (seconds). 0 = disabled.
+    # UI can present this as minutes and convert to seconds when saving.
+    "max_trade_duration_seconds": 0,
 
     # Trading control
     "trading_enabled": True,  # If False: no new entries, but indicators/updates continue

@@ -940,18 +940,23 @@ class TradingBot:
                 
                 # Check daily reset (9:15 AM IST)
                 ist = get_ist_time()
+                # Only run the daily reset once per day — avoid repeating during the same minute
                 if ist.hour == 9 and ist.minute == 15:
-                    bot_state['daily_trades'] = 0
-                    bot_state['daily_pnl'] = 0.0
-                    bot_state['daily_max_loss_triggered'] = False
-                    bot_state['max_drawdown'] = 0.0
-                    self.last_exit_candle_time = None
-                    self.last_trade_time = None
-                    self.last_signal = None
-                    candle_number = 0
-                    htf_candle_number = 0
-                    self.reset_indicator()
-                    logger.info("[BOT] Daily reset at 9:15 AM")
+                    last_reset = bot_state.get('last_daily_reset_date')
+                    today = ist.date().isoformat()
+                    if last_reset != today:
+                        bot_state['daily_trades'] = 0
+                        bot_state['daily_pnl'] = 0.0
+                        bot_state['daily_max_loss_triggered'] = False
+                        bot_state['max_drawdown'] = 0.0
+                        self.last_exit_candle_time = None
+                        self.last_trade_time = None
+                        self.last_signal = None
+                        candle_number = 0
+                        htf_candle_number = 0
+                        self.reset_indicator()
+                        bot_state['last_daily_reset_date'] = today
+                        logger.info("[BOT] Daily reset at 9:15 AM")
                 
                 # Force square-off at 3:25 PM (skip during paper replay)
                 if (not replay_enabled) and should_force_squareoff() and self.current_position:
@@ -1487,7 +1492,7 @@ class TradingBot:
         }
 
         try:
-            logger.info(f"[STATE] Broadcasting state_update: index_ltp={payload['data'].get('index_ltp')} selected_index={payload['data'].get('selected_index')} mds_score={payload['data'].get('mds_score')}")
+            logger.debug(f"[STATE] Broadcasting state_update: index_ltp={payload['data'].get('index_ltp')} selected_index={payload['data'].get('selected_index')} mds_score={payload['data'].get('mds_score')}")
             await manager.broadcast(payload)
             logger.debug("[STATE] state_update broadcast complete")
         except Exception as e:
@@ -1532,7 +1537,7 @@ class TradingBot:
 
             # NOTE: Momentum/score-based exits intentionally disabled.
             # We keep only fixed SL, target and trailing SL as exit mechanisms.
-            logger.info("[MDS] Score/momentum exits disabled - skipping MDS-driven exit checks")
+                    logger.debug("[MDS] Score/momentum exits disabled - skipping MDS-driven exit checks")
             return False
 
         # No position: entry logic
@@ -1566,12 +1571,12 @@ class TradingBot:
 
         ready = bool(getattr(mds_snapshot, 'ready', False))
         if not ready:
-            logger.info("[MDS] Skipping - Engine not ready yet (warming up)")
+                        logger.debug("[MDS] Skipping - Engine not ready yet (warming up)")
             return False
 
         is_choppy = bool(getattr(mds_snapshot, 'is_choppy', False))
         if is_choppy:
-            logger.info("[MDS] Skipping - Market is choppy")
+                        logger.debug("[MDS] Skipping - Market is choppy")
             return False
 
         confirm_needed = 1 if bot_state.get('mode') == 'paper' else 2
@@ -1731,6 +1736,21 @@ class TradingBot:
                 )
                 closed = await self.close_position(current_ltp, pnl, "Trailing SL Hit")
                 return bool(closed)
+        # Max trade duration (candle-close enforcement)
+        try:
+            max_dur = int(config.get('max_trade_duration_seconds', 0) or 0)
+        except Exception:
+            max_dur = 0
+        if max_dur > 0 and self.entry_time_utc:
+            now = datetime.now(timezone.utc)
+            elapsed = (now - self.entry_time_utc).total_seconds()
+            if elapsed >= max_dur:
+                pnl = profit_points * qty
+                logger.info(
+                    f"[EXIT] Max duration hit (close) | Elapsed={elapsed:.1f}s | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | MaxDur={max_dur}s"
+                )
+                closed = await self.close_position(current_ltp, pnl, "Max Duration Hit")
+                return bool(closed)
         return False
     
     async def check_tick_sl(self, current_ltp: float) -> bool:
@@ -1773,6 +1793,20 @@ class TradingBot:
                     f"[EXIT] Trailing stop hit (tick) | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | SL={tsl:.2f}"
                 )
                 closed = await self.close_position(current_ltp, pnl, "Trailing SL Hit")
+                return bool(closed)
+        # Max trade duration (tick-level enforcement)
+        try:
+            max_dur = int(config.get('max_trade_duration_seconds', 0) or 0)
+        except Exception:
+            max_dur = 0
+        if max_dur > 0 and self.entry_time_utc:
+            now = datetime.now(timezone.utc)
+            elapsed = (now - self.entry_time_utc).total_seconds()
+            if elapsed >= max_dur:
+                logger.info(
+                    f"[EXIT] Max duration hit (tick) | Elapsed={elapsed:.1f}s | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | MaxDur={max_dur}s"
+                )
+                closed = await self.close_position(current_ltp, pnl, "Max Duration Hit")
                 return bool(closed)
         return False
     
