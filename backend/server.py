@@ -502,6 +502,25 @@ async def debug_bot_internals():
         return JSONResponse(status_code=500, content={"error": "failed to read internals"})
 
 
+@api_router.post("/debug/force_trailing_check")
+async def debug_force_trailing_check():
+    """Force a trailing SL check now for the running bot (for debugging)."""
+    try:
+        bot = bot_service.get_trading_bot()
+    except Exception:
+        return JSONResponse(status_code=500, content={"error": "Bot instance not available"})
+
+    try:
+        if not bot.current_position:
+            return JSONResponse(status_code=400, content={"error": "No open position"})
+        ltp = bot_state.get('current_option_ltp') or 0.0
+        await bot.check_trailing_sl(float(ltp))
+        return {"status": "ok", "checked_ltp": ltp, "trailing_sl": getattr(bot, 'trailing_sl', None), "highest_profit": getattr(bot, 'highest_profit', None)}
+    except Exception as e:
+        logger.exception(f"[DEBUG] Force trailing check failed: {e}")
+        return JSONResponse(status_code=500, content={"error": "failed"})
+
+
 @api_router.get("/indices")
 async def get_indices():
     """Get available indices"""

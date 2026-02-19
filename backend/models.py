@@ -56,6 +56,10 @@ class ConfigUpdate(BaseModel):
     # Order pacing
     min_order_cooldown_seconds: Optional[int] = None  # Minimum seconds between any two orders
 
+    # TradeLife: max allowed trade duration
+    max_trade_duration_seconds: Optional[int] = None  # Seconds (0 = disabled)
+    max_trade_duration_minutes: Optional[int] = None  # Backwards-compatible minutes field
+
     # Testing
     bypass_market_hours: Optional[bool] = None  # If True: ignore market-hours gating (paper testing)
 
