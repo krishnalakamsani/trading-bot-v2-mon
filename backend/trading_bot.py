@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import logging
 import random
+import math
 
 from config import bot_state, config, DB_PATH
 from indices import get_index_config, round_to_strike
@@ -1107,6 +1108,10 @@ class TradingBot:
                                 try:
                                     await self.check_trailing_sl(bot_state['current_option_ltp'])
                                 except Exception:
+                                    logger.debug("[SL] check_trailing_sl failed after simulated option_ltp set")
+                                try:
+                                    await self.check_trailing_sl(bot_state['current_option_ltp'])
+                                except Exception:
                                     logger.debug("[SL] check_trailing_sl failed during simulated option LTP update (non-MDS)")
                                 logger.debug(f"[PAPER] simulated option_ltp update: SecID={security_id} SimLTP={simulated_ltp}")
                                 try:
@@ -1535,9 +1540,14 @@ class TradingBot:
             except Exception:
                 slow_mom = 0.0
 
-            # NOTE: Momentum/score-based exits intentionally disabled.
-            # We keep only fixed SL, target and trailing SL as exit mechanisms.
-                    logger.debug("[MDS] Score/momentum exits disabled - skipping MDS-driven exit checks")
+                # NOTE: Momentum/score-based exits intentionally disabled.
+                # We keep only fixed SL, target and trailing SL as exit mechanisms.
+                logger.debug("[MDS] Score/momentum exits disabled - skipping MDS-driven exit checks")
+                return False
+
+        # If a position is still open after exit checks, do not run entry logic
+        if self.current_position:
+            logger.info("[ENTRY_DECISION] NO | Reason=position_open (MDS)")
             return False
 
         # No position: entry logic
@@ -1571,12 +1581,12 @@ class TradingBot:
 
         ready = bool(getattr(mds_snapshot, 'ready', False))
         if not ready:
-                        logger.debug("[MDS] Skipping - Engine not ready yet (warming up)")
+            logger.debug("[MDS] Skipping - Engine not ready yet (warming up)")
             return False
 
         is_choppy = bool(getattr(mds_snapshot, 'is_choppy', False))
         if is_choppy:
-                        logger.debug("[MDS] Skipping - Market is choppy")
+            logger.debug("[MDS] Skipping - Market is choppy")
             return False
 
         confirm_needed = 1 if bot_state.get('mode') == 'paper' else 2
@@ -1638,57 +1648,68 @@ class TradingBot:
         """Update SL values - initial fixed SL then trails profit using step-based method"""
         if not self.current_position:
             return
-        
-        # Check if trailing is completely disabled
-        trail_start = config.get('trail_start_profit', 0)
-        trail_step = config.get('trail_step', 0)
-        
-        if trail_start == 0 or trail_step == 0:
+
+        # Coerce config values to numbers and validate
+        try:
+            trail_start = float(config.get('trail_start_profit', 0) or 0)
+        except Exception:
+            trail_start = 0.0
+        try:
+            trail_step = float(config.get('trail_step', 0) or 0)
+        except Exception:
+            trail_step = 0.0
+
+        if trail_start <= 0 or trail_step <= 0:
             # Trailing disabled - don't set any SL
             return
-        
-        profit_points = current_ltp - self.entry_price
-        
-        # Track highest profit reached
-        if profit_points > self.highest_profit:
-            self.highest_profit = profit_points
-        
+
+        try:
+            profit_points = float(current_ltp) - float(self.entry_price)
+        except Exception:
+            return
+
+        # Track highest profit reached (use max to avoid regressions)
+        self.highest_profit = max(self.highest_profit, profit_points)
+
+        # Diagnostic log to help debug trailing behavior (visible at INFO level)
+        logger.info(
+            f"[SL] check called | LTP={current_ltp:.2f} Entry={self.entry_price:.2f} "
+            f"Profit={profit_points:.2f} Highest={self.highest_profit:.2f} "
+            f"TrailStart={trail_start} Step={trail_step} CurrentTSL={self.trailing_sl}"
+        )
+
         # Step 1: Set initial fixed stoploss (if enabled)
-        initial_sl = config.get('initial_stoploss', 0)
+        try:
+            initial_sl = float(config.get('initial_stoploss', 0) or 0)
+        except Exception:
+            initial_sl = 0.0
+
         if initial_sl > 0 and self.trailing_sl is None:
-            self.trailing_sl = self.entry_price - initial_sl
+            self.trailing_sl = float(self.entry_price) - initial_sl
             bot_state['trailing_sl'] = self.trailing_sl
             logger.info(f"[SL] Initial SL set: {self.trailing_sl:.2f} ({initial_sl} pts below entry)")
+            logger.debug(f"[SL] Continuing after initial SL; current_ltp={current_ltp:.2f} entry={self.entry_price:.2f} profit_points={profit_points:.2f}")
+
+        # Step 2: Activate trailing once highest profit exceeds trail_start
+        if self.highest_profit < trail_start:
             return
-        
-        # Step 2: Start trailing SL after reaching trail_start_profit
-        
-        # Only start trailing after profit reaches trail_start_profit
-        if profit_points < trail_start:
-            return
-        
-        # Trailing behavior:
-        # - Start trailing only after profit reaches trail_start
-        # - Once active, SL trails behind highest profit by trail_step in step increments
-        # Example: entry=100, start=10, step=5
-        #   at profit=10 (LTP=110) -> SL locks +5 (105)
-        #   at profit=15 (LTP=115) -> SL locks +10 (110)
-        trail_levels = int((self.highest_profit - trail_start) / trail_step)
+
+        # Compute how many full steps we've moved past trail_start
+        trail_levels = int(math.floor((self.highest_profit - trail_start) / trail_step))
         locked_profit = (trail_start - trail_step) + (trail_levels * trail_step)
         locked_profit = max(0.0, locked_profit)
-        new_sl = self.entry_price + locked_profit
-        
+        new_sl = float(self.entry_price) + locked_profit
+
         # Always move SL up, never down (protect profit)
-        if self.trailing_sl is None or new_sl > self.trailing_sl:
+        if self.trailing_sl is None or new_sl > float(self.trailing_sl):
             old_sl = self.trailing_sl
             self.trailing_sl = new_sl
             bot_state['trailing_sl'] = self.trailing_sl
-            
-            if old_sl and old_sl > (self.entry_price - initial_sl):
-                # This is a trailing update (not initial trigger)
+
+            logger.info(f"[SL] Computed new_sl={new_sl:.2f} locked_profit={locked_profit:.2f} highest_profit={self.highest_profit:.2f} trail_start={trail_start} trail_step={trail_step}")
+            if old_sl is not None and old_sl > (float(self.entry_price) - initial_sl):
                 logger.info(f"[SL] Trailing SL updated: {old_sl:.2f} → {new_sl:.2f} (Profit: {profit_points:.2f} pts)")
             else:
-                # This is the first trailing activation
                 logger.info(f"[SL] Trailing started: {new_sl:.2f} (Profit: {profit_points:.2f} pts)")
 
     

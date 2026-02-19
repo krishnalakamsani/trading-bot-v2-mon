@@ -303,6 +303,17 @@ async def update_config_values(updates: dict) -> dict:
         updated_fields.append('max_trade_duration_seconds')
         logger.info(f"[CONFIG] Max trade duration set to: {config['max_trade_duration_seconds']}s")
 
+    # Backwards-compatible: allow frontend to send minutes field (converts to seconds)
+    if updates.get('max_trade_duration_minutes') is not None:
+        try:
+            mins = max(0, int(updates['max_trade_duration_minutes']))
+        except Exception:
+            mins = 0
+        secs = mins * 60
+        config['max_trade_duration_seconds'] = secs
+        updated_fields.append('max_trade_duration_seconds')
+        logger.info(f"[CONFIG] Max trade duration set to: {config['max_trade_duration_seconds']}s ({mins} min) via minutes field")
+
     if updates.get('bypass_market_hours') is not None:
         config['bypass_market_hours'] = str(updates['bypass_market_hours']).lower() in ('true', '1', 'yes')
         updated_fields.append('bypass_market_hours')
