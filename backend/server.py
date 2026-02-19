@@ -477,6 +477,31 @@ async def debug_ws_test(index: str = Query(default=None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api_router.get("/debug/bot_internals")
+async def debug_bot_internals():
+    """Return internal bot state for debugging (read-only)."""
+    try:
+        bot = bot_service.get_trading_bot()
+    except Exception:
+        return JSONResponse(status_code=500, content={"error": "Bot instance not available"})
+
+    try:
+        data = {
+            "entry_price": getattr(bot, 'entry_price', None),
+            "current_option_ltp": bot_state.get('current_option_ltp'),
+            "trailing_sl": getattr(bot, 'trailing_sl', None),
+            "highest_profit": getattr(bot, 'highest_profit', None),
+            "current_position": bot_state.get('current_position'),
+            "trail_start_profit": config.get('trail_start_profit'),
+            "trail_step": config.get('trail_step'),
+            "initial_stoploss": config.get('initial_stoploss'),
+        }
+        return data
+    except Exception as e:
+        logger.exception(f"[DEBUG] Failed to read bot internals: {e}")
+        return JSONResponse(status_code=500, content={"error": "failed to read internals"})
+
+
 @api_router.get("/indices")
 async def get_indices():
     """Get available indices"""
