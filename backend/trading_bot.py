@@ -1717,6 +1717,20 @@ class TradingBot:
             )
             closed = await self.close_position(current_ltp, pnl, "Stop-loss Hit")
             return bool(closed)
+        # Trailing SL exit (absolute price stored in self.trailing_sl)
+        try:
+            tsl = getattr(self, 'trailing_sl', None)
+        except Exception:
+            tsl = None
+        if tsl is not None:
+            # Exit when price falls to or below trailing SL
+            if current_ltp <= tsl:
+                pnl = profit_points * qty
+                logger.info(
+                    f"[EXIT] Trailing stop hit (close) | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | SL={tsl:.2f}"
+                )
+                closed = await self.close_position(current_ltp, pnl, "Trailing SL Hit")
+                return bool(closed)
         return False
     
     async def check_tick_sl(self, current_ltp: float) -> bool:
@@ -1748,6 +1762,18 @@ class TradingBot:
             )
             closed = await self.close_position(current_ltp, pnl, "Stop-loss Hit")
             return bool(closed)
+        # Trailing SL exit (tick-level)
+        try:
+            tsl = getattr(self, 'trailing_sl', None)
+        except Exception:
+            tsl = None
+        if tsl is not None:
+            if current_ltp <= tsl:
+                logger.info(
+                    f"[EXIT] Trailing stop hit (tick) | LTP={current_ltp:.2f} | Entry={self.entry_price:.2f} | SL={tsl:.2f}"
+                )
+                closed = await self.close_position(current_ltp, pnl, "Trailing SL Hit")
+                return bool(closed)
         return False
     
     async def process_signal_on_close(self, signal: str, index_ltp: float, flipped: bool = False) -> bool:

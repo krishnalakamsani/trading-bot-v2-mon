@@ -1,0 +1,44 @@
+{
+  "requested_dates": [
+    "2026-02-19"
+  ],
+  "total_filtered_trades": 26,
+  "per_day": {
+    "2026-02-19": {
+      "count": 26,
+      "total_pnl": 24147.500000000022,
+      "avg_pnl": 928.7500000000008,
+      "winning_trades": 16,
+      "losing_trades": 10,
+      "win_rate_pct": 61.53846153846154,
+      "avg_win": 3625.7812500000005,
+      "avg_loss": -3386.4999999999986,
+      "max_profit": 11943.75,
+      "max_loss": -3672.5000000000036,
+      "median_duration_seconds": 422.9421445,
+      "avg_duration_seconds": 511.38573330769236,
+      "by_option_type": {
+        "PE": 19,
+        "CE": 7
+      }
+    }
+  },
+  "combined": {
+    "count": 26,
+    "total_pnl": 24147.500000000022,
+    "avg_pnl": 928.7500000000008,
+    "winning_trades": 16,
+    "losing_trades": 10,
+    "win_rate_pct": 61.53846153846154,
+    "avg_win": 3625.7812500000005,
+    "avg_loss": -3386.4999999999986,
+    "max_profit": 11943.75,
+    "max_loss": -3672.5000000000036,
+    "median_duration_seconds": 422.9421445,
+    "avg_duration_seconds": 511.38573330769236,
+    "by_option_type": {
+      "PE": 19,
+      "CE": 7
+    }
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "requested_dates": [
+    "2026-02-17",
+    "2026-02-18",
+    "2026-02-19"
+  ],
+  "total_filtered_trades": 84,
+  "per_day": {
+    "2026-02-17": {
+      "count": 33,
+      "total_pnl": -16363.75,
+      "avg_pnl": -495.8712121212121,
+      "winning_trades": 14,
+      "losing_trades": 19,
+      "win_rate_pct": 42.42424242424242,
+      "avg_win": 2734.6428571428573,
+      "avg_loss": -2876.25,
+      "max_profit": 6890.000000000001,
+      "max_loss": -3640.0000000000005,
+      "median_duration_seconds": 255.33643,
+      "avg_duration_seconds": 479.82311500000003,
+      "by_option_type": {
+        "PE": 17,
+        "CE": 16
+      }
+    },
+    "2026-02-18": {
+      "count": 25,
+      "total_pnl": 15583.749999999996,
+      "avg_pnl": 623.3499999999999,
+      "winning_trades": 19,
+      "losing_trades": 6,
+      "win_rate_pct": 76.0,
+      "avg_win": 1601.052631578947,
+      "avg_loss": -2472.7083333333326,
+      "max_profit": 2128.7499999999945,
+      "max_loss": -3477.4999999999964,
+      "median_duration_seconds": 293.451357,
+      "avg_duration_seconds": 695.20860864,
+      "by_option_type": {
+        "PE": 9,
+        "CE": 16
+      }
+    },
+    "2026-02-19": {
+      "count": 26,
+      "total_pnl": 24147.500000000022,
+      "avg_pnl": 928.7500000000008,
+      "winning_trades": 16,
+      "losing_trades": 10,
+      "win_rate_pct": 61.53846153846154,
+      "avg_win": 3625.7812500000005,
+      "avg_loss": -3386.4999999999986,
+      "max_profit": 11943.75,
+      "max_loss": -3672.5000000000036,
+      "median_duration_seconds": 422.9421445,
+      "avg_duration_seconds": 511.38573330769236,
+      "by_option_type": {
+        "PE": 19,
+        "CE": 7
+      }
+    }
+  },
+  "combined": {
+    "count": 84,
+    "total_pnl": 23367.50000000002,
+    "avg_pnl": 278.184523809524,
+    "winning_trades": 49,
+    "losing_trades": 35,
+    "win_rate_pct": 58.333333333333336,
+    "avg_win": 2586.0714285714284,
+    "avg_loss": -2952.8571428571427,
+    "max_profit": 11943.75,
+    "max_loss": -3672.5000000000036,
+    "median_duration_seconds": 350.840571,
+    "avg_duration_seconds": 553.6953223452381,
+    "by_option_type": {
+      "PE": 45,
+      "CE": 39
+    }
+  }
+}
