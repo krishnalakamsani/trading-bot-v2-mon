@@ -53,6 +53,10 @@ const Settings = () => {
     config.macd_confirmation_enabled !== false
   );
 
+  // SuperTrend parameters (exposed in UI to allow tuning)
+  const [supertrendPeriod, setSupertrendPeriod] = useState(config.supertrend_period || 7);
+  const [supertrendMultiplier, setSupertrendMultiplier] = useState(config.supertrend_multiplier || 4);
+
   const [adxPeriod, setAdxPeriod] = useState(config.adx_period || 14);
   const [adxThreshold, setAdxThreshold] = useState(config.adx_threshold || 25);
 
@@ -115,6 +119,9 @@ const Settings = () => {
       setMacdSignal(config?.macd_signal || 9);
       setMacdConfirmationEnabled(config?.macd_confirmation_enabled !== false);
 
+      setSupertrendPeriod(config?.supertrend_period || 7);
+      setSupertrendMultiplier(config?.supertrend_multiplier || 4);
+
       setAdxPeriod(config?.adx_period || 14);
       setAdxThreshold(config?.adx_threshold || 25);
       setMinTradeGap(config?.min_trade_gap || 0);
@@ -166,9 +173,9 @@ const Settings = () => {
     setSaving(true);
     await updateConfig({
       indicator_type: indicatorType,
-      // Keep backend SuperTrend params unchanged when saving from UI
-      supertrend_period: config?.supertrend_period,
-      supertrend_multiplier: config?.supertrend_multiplier,
+      // SuperTrend params (now editable in UI)
+      supertrend_period: supertrendPeriod,
+      supertrend_multiplier: supertrendMultiplier,
       macd_fast: macdFast,
       macd_slow: macdSlow,
       macd_signal: macdSignal,
@@ -880,7 +887,33 @@ const Settings = () => {
                   <p className="text-xs text-gray-500">Score Engine uses internal confirmation and MDS telemetry.</p>
               </div>
 
-              {/* SuperTrend UI removed — Score Engine is the only supported strategy */}
+              <div>
+                <Label htmlFor="supertrend-period">SuperTrend Period</Label>
+                <Input
+                  id="supertrend-period"
+                  type="number"
+                  min="1"
+                  value={supertrendPeriod}
+                  onChange={(e) => setSupertrendPeriod(parseInt(e.target.value || 0) || 1)}
+                  className="mt-1 rounded-sm"
+                  data-testid="supertrend-period-input"
+                />
+                <p className="text-xs text-gray-500 mt-1">Number of periods for SuperTrend</p>
+              </div>
+
+              <div>
+                <Label htmlFor="supertrend-multiplier">SuperTrend Multiplier</Label>
+                <Input
+                  id="supertrend-multiplier"
+                  type="number"
+                  min="1"
+                  value={supertrendMultiplier}
+                  onChange={(e) => setSupertrendMultiplier(parseFloat(e.target.value || 0) || 1)}
+                  className="mt-1 rounded-sm"
+                  data-testid="supertrend-multiplier-input"
+                />
+                <p className="text-xs text-gray-500 mt-1">ATR multiplier for SuperTrend</p>
+              </div>
 
               {indicatorUsesMacd && (
                 <>
