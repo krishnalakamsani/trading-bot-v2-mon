@@ -3,4 +3,4 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-python3 backend/mds_service_runner.py
+python3 market-data-service/mds_service_runner.py

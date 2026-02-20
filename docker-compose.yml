@@ -2,7 +2,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: services/backend/Dockerfile
+      dockerfile: backend/Dockerfile
     container_name: niftyalgo-backend
     restart: unless-stopped
     ports:
@@ -33,7 +33,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: services/frontend/Dockerfile
+      dockerfile: frontend/Dockerfile
       args:
         - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8001}
         - REACT_APP_WS_TOKEN=${WS_AUTH_TOKEN:-}
@@ -49,13 +49,13 @@ services:
   market-data:
     build:
       context: .
-      dockerfile: services/market-data/Dockerfile
+      dockerfile: market-data-service/Dockerfile
     container_name: niftyalgo-market-data
     restart: unless-stopped
     # Ensure the runner is invoked from the backend path inside the image
-    command: ["python3", "/app/backend/mds_service_runner.py"]
+    command: ["python3", "/app/mds_service_runner.py"]
     env_file:
-      - ./backend/.env
+      - ./market-data-service/.env
     volumes:
       - ./backend/data:/app/data
       - ./backend/logs:/app/logs

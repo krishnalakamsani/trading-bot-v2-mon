@@ -6,15 +6,16 @@ Current mapping (directories):
 
 - `frontend/`  — React UI that connects to backend via REST and WebSocket.
 - `backend/`   — FastAPI server, trading bot logic, API, websocket handler.
-- `backend/mds_service_runner.py` — standalone runner to run `MarketDataService` independently.
+- `market-data-service/mds_service_runner.py` — standalone runner to run Market Data Service independently.
 
 Recommended services (Docker Compose):
 
 - `frontend` service (existing)
 - `backend` service (existing)
-- `market-data` service (runs `python3 backend/mds_service_runner.py`)
+- `market-data` service (runs `python3 market-data-service/mds_service_runner.py`)
 
 How to run (docker-compose):
+
 
 ```bash
 # start all services (build if needed)
@@ -27,10 +28,11 @@ docker compose logs -f backend
 docker compose logs -f market-data
 ```
 
+
 How to run market-data runner directly (no Docker):
 
 ```bash
-python3 backend/mds_service_runner.py
+python3 market-data-service/mds_service_runner.py
 ```
 
 Notes:
