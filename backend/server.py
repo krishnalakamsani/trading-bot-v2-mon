@@ -96,7 +96,7 @@ class ConnectionManager:
         for connection in list(self.active_connections):
             client = getattr(connection, 'client', None)
             try:
-                await asyncio.wait_for(connection.send_json(message), timeout=2)
+                await asyncio.wait_for(connection.send_json(message), timeout=5)
             except asyncio.TimeoutError as te:
                 stale.append(connection)
                 try:
@@ -121,6 +121,30 @@ manager = ConnectionManager()
 
 _market_data_service = None
 _mds_consumer_task: asyncio.Task | None = None
+_last_index_ltp: float | None = None
+_index_ltp_streak: int = 0
+
+
+def _set_index_ltp(value: float) -> float:
+    """Set `bot_state['index_ltp']` with simple stall detection logging."""
+    global _last_index_ltp, _index_ltp_streak
+    try:
+        v = float(value) if value is not None else 0.0
+    except Exception:
+        v = 0.0
+
+    bot_state['index_ltp'] = v
+
+    if _last_index_ltp is None or v != _last_index_ltp:
+        _last_index_ltp = v
+        _index_ltp_streak = 1
+    else:
+        _index_ltp_streak += 1
+
+    if _index_ltp_streak >= 10:
+        logger.warning(f"[MDS] index_ltp unchanged for {_index_ltp_streak} updates: {v}")
+
+    return v
 
 
 async def _mds_consumer_loop():
@@ -164,7 +188,19 @@ async def _mds_consumer_loop():
             )
 
             if close_price is not None and close_price > 0:
-                bot_state['index_ltp'] = float(close_price)
+                _set_index_ltp(close_price)
+                logger.info(f"[TICK] Current LTP: {bot_state.get('index_ltp')} (source=MDS consumer)")
+                # Broadcast raw tick to connected clients so frontend and backend
+                # share the exact same tick data (single source of truth).
+                try:
+                    payload = {"type": "tick", "data": {"index_ltp": float(close_price), "source": "mds"}}
+                    try:
+                        # schedule non-blocking broadcast
+                        asyncio.create_task(manager.broadcast(payload))
+                    except Exception:
+                        await manager.broadcast(payload)
+                except Exception:
+                    logger.debug("[MDS] Failed to broadcast tick to websocket clients")
             else:
                 # Fallback: if MDS has no candles (e.g., not yet backfilled/streaming),
                 # keep the UI feed live via Dhan quotes (no persistence).
@@ -176,7 +212,8 @@ async def _mds_consumer_loop():
                             dhan_fallback = DhanAPI(config.get('dhan_access_token'), config.get('dhan_client_id'))
                         ltp = await asyncio.to_thread(dhan_fallback.get_index_ltp, index_name)
                         if ltp and float(ltp) > 0:
-                            bot_state['index_ltp'] = float(ltp)
+                            _set_index_ltp(ltp)
+                            logger.info(f"[TICK] Current LTP: {bot_state.get('index_ltp')} (source=Dhan fallback in MDS consumer)")
                     except Exception:
                         pass
 
@@ -222,22 +259,34 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[MDS] Consumer not started: {e}")
 
-    # Optional legacy: Start independent market-data capture (runs even if bot is stopped).
-    # Default OFF when using the separate market-data-service container.
-    if bool(config.get('enable_internal_market_data_service', False)) and config.get("dhan_access_token") and config.get("dhan_client_id"):
-        try:
-            from dhan_api import DhanAPI
-            from market_data_service import MarketDataService
+    # NOTE: Market data ingestion is now a separate service. The server will
+    # not start the internal `MarketDataService` here. To run market-data in
+    # the same host use the mds_service_runner.py script or run a dedicated
+    # container/service. This avoids mixing ingestion concerns with request
+    # handling and makes scaling / rate-limit isolation easier.
+    if bool(config.get('enable_internal_market_data_service', False)):
+        logger.info('[STARTUP] Internal MarketDataService disabled in server; run separate service if needed')
+        _market_data_service = None
 
-            dhan = DhanAPI(config.get("dhan_access_token"), config.get("dhan_client_id"))
-            _market_data_service = MarketDataService(dhan)
-            await _market_data_service.start()
-        except Exception as e:
-            _market_data_service = None
-            logger.warning(f"[STARTUP] MarketDataService not started: {e}")
+    # Optionally auto-start the trading bot (live mode expected)
+    try:
+        if bool(config.get('auto_start_bot', False)):
+            try:
+                import bot_service
+
+                # Start bot asynchronously but don't await here
+                asyncio.create_task(bot_service.start_bot())
+                logger.info("[STARTUP] Auto-start requested for trading bot")
+            except Exception as e:
+                logger.exception(f"[STARTUP] Failed to auto-start bot: {e}")
+    except Exception:
+        pass
 
     try:
         yield
+    except Exception:
+        # Ensure any startup exceptions surface
+        raise
     finally:
         if _market_data_service is not None:
             try:
@@ -697,6 +746,36 @@ async def apply_strategy(strategy_id: int, start: bool = Query(default=False)):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates"""
+    # Optional token-based auth: if `ws_auth_token` is configured, require clients to connect with ?token=<token>
+    try:
+        token = websocket.query_params.get('token') if getattr(websocket, 'query_params', None) is not None else None
+    except Exception:
+        token = None
+
+    expected = config.get('ws_auth_token') or ''
+    if expected:
+        if not token or str(token) != str(expected):
+            try:
+                await websocket.accept()
+                await websocket.send_json({"type": "error", "message": "unauthorized"})
+            except Exception:
+                pass
+            try:
+                await websocket.close(code=1008)
+            except Exception:
+                pass
+            # Log additional request details to help identify the client/source
+            try:
+                headers = dict(websocket.headers) if getattr(websocket, 'headers', None) is not None else {}
+            except Exception:
+                headers = {}
+            try:
+                scope = getattr(websocket, 'scope', None) or {}
+            except Exception:
+                scope = {}
+            logger.warning(f"[WS] Unauthorized websocket connection attempt: client={getattr(websocket, 'client', None)} headers={headers} scope_path={scope.get('path')} scope_client={scope.get('client')}")
+            return
+
     await manager.connect(websocket)
     try:
         try:
@@ -711,6 +790,27 @@ async def websocket_endpoint(websocket: WebSocket):
                 if data == "ping":
                     logger.debug(f"[WS] Received ping from {getattr(websocket, 'client', None)}")
                     await websocket.send_text("pong")
+                else:
+                    # We no longer accept ticks from WebSocket clients. The backend
+                    # owns the single market-data ingestion path (MDS / MarketDataService)
+                    # and broadcasts the same tick/state to all connected clients. Keep
+                    # a minimal ping/subscribe surface for future extension.
+                    try:
+                        import json
+                        msg = json.loads(data)
+                        if isinstance(msg, dict) and msg.get('type') == 'subscribe':
+                            # Client may optionally request a subscription to an index.
+                            # For now we accept the message but we broadcast global ticks
+                            # (same data to frontend/backend). Reply with ack.
+                            try:
+                                await websocket.send_json({"type": "ack", "status": "subscribed", "index": msg.get('index')})
+                            except Exception:
+                                pass
+                        else:
+                            # Ignore other client messages; respond to ping via timeout loop
+                            logger.debug(f"[WS] Ignoring client message of unsupported type from {getattr(websocket, 'client', None)}")
+                    except Exception:
+                        logger.debug("[WS] Non-JSON client message received; ignoring")
             except asyncio.TimeoutError:
                 try:
                     hb = {"type": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()}

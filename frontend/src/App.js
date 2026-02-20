@@ -155,7 +155,9 @@ function App() {
     const connectWebSocket = () => {
       if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-      const ws = new WebSocket(`${WS_URL}/ws`);
+      const token = process.env.REACT_APP_WS_TOKEN || '';
+      const wsUrl = token ? `${WS_URL}/ws?token=${token}` : `${WS_URL}/ws`;
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         setWsConnected(true);

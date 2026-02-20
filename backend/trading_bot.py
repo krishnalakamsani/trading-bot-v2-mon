@@ -55,7 +55,30 @@ class TradingBot:
         self._mds_htf_low = float('inf')
         self._mds_htf_close = 0.0
         self._trailing_task: asyncio.Task | None = None
+        self._last_index_ltp: float | None = None
+        self._index_ltp_streak: int = 0
         self._initialize_indicator()
+
+    def _set_index_ltp(self, value: float) -> float:
+        """Set `bot_state['index_ltp']` with simple stall detection logging."""
+        try:
+            v = float(value) if value is not None else 0.0
+        except Exception:
+            v = 0.0
+
+        bot_state['index_ltp'] = v
+
+        # Track repeated identical values to detect a stalled feed
+        if self._last_index_ltp is None or v != self._last_index_ltp:
+            self._last_index_ltp = v
+            self._index_ltp_streak = 1
+        else:
+            self._index_ltp_streak += 1
+
+        if self._index_ltp_streak >= 10:
+            logger.warning(f"[MARKET] index_ltp unchanged for {self._index_ltp_streak} updates: {v}")
+
+        return v
 
     def _prefetch_candles_needed(self) -> int:
         st_period = int(config.get('supertrend_period', 7) or 7)
@@ -1005,7 +1028,7 @@ class TradingBot:
 
                     # Treat candle close price as current LTP
                     if close > 0:
-                        bot_state['index_ltp'] = close
+                        self._set_index_ltp(close)
 
                     # Update HTF (replay-time based, not wall-clock)
                     if config.get('htf_filter_enabled', True) and int(candle_interval) < 60 and close > 0:
@@ -1173,7 +1196,8 @@ class TradingBot:
                                 close_price = 0.0
 
                             if close_price > 0:
-                                bot_state['index_ltp'] = float(close_price)
+                                self._set_index_ltp(close_price)
+                                logger.info(f"[TICK] Current LTP: {bot_state.get('index_ltp')} (source=MDS)")
 
                                 mds_new_candle_ts = str(candle.get('ts') or '') or None
                                 if mds_new_candle_ts and mds_new_candle_ts != self._last_mds_candle_ts:
@@ -1184,7 +1208,8 @@ class TradingBot:
                             try:
                                 index_ltp = await asyncio.to_thread(self.dhan.get_index_ltp, index_name)
                                 if index_ltp and index_ltp > 0:
-                                    bot_state['index_ltp'] = float(index_ltp)
+                                    self._set_index_ltp(index_ltp)
+                                    logger.info(f"[TICK] Current LTP: {bot_state.get('index_ltp')} (source=Dhan-fallback)")
                             except Exception:
                                 pass
                     except Exception:
@@ -1206,6 +1231,7 @@ class TradingBot:
                                     option_ltp = round(option_ltp, 2)
                                     bot_state['current_option_ltp'] = option_ltp
                                     logger.debug(f"[MARKET] Dhan option LTP update: SecID={option_security_id} LTP={option_ltp}")
+                                    logger.info(f"[TICK] Current LTP: {bot_state.get('index_ltp')} (source=Dhan index+option)")
                                     try:
                                         await self.check_trailing_sl(bot_state['current_option_ltp'])
                                     except Exception:
@@ -1282,11 +1308,14 @@ class TradingBot:
                             self.dhan.get_index_and_option_ltp, index_name, option_security_id
                         )
                         if index_ltp > 0:
-                            bot_state['index_ltp'] = index_ltp
+                            self._set_index_ltp(index_ltp)
                         if option_ltp > 0:
                             option_ltp = round(option_ltp / 0.05) * 0.05
                             option_ltp = round(option_ltp, 2)
                             bot_state['current_option_ltp'] = option_ltp
+                            # ensure index_ltp is also tracked via helper if present
+                            if index_ltp and float(index_ltp) > 0:
+                                self._set_index_ltp(index_ltp)
                             logger.debug(f"[MARKET] Dhan index+option LTP: SecID={option_security_id} LTP={option_ltp} IndexLTP={index_ltp}")
                             try:
                                 await self.check_trailing_sl(bot_state['current_option_ltp'])
@@ -1295,7 +1324,8 @@ class TradingBot:
                     else:
                         index_ltp = await asyncio.to_thread(self.dhan.get_index_ltp, index_name)
                         if index_ltp > 0:
-                            bot_state['index_ltp'] = index_ltp
+                            self._set_index_ltp(index_ltp)
+                            logger.info(f"[TICK] Current LTP: {bot_state.get('index_ltp')} (source=Dhan legacy)")
                 
                 # Paper testing: simulate index movement when bypass_market_hours is enabled.
                 # This keeps candles moving even if the API returns stale/flat prices outside market hours.
@@ -1318,7 +1348,7 @@ class TradingBot:
 
                     tick_change = random.choice([-15, -10, -5, -2, 0, 2, 5, 10, 15])
                     bot_state['simulated_base_price'] += tick_change
-                    bot_state['index_ltp'] = round(bot_state['simulated_base_price'], 2)
+                    self._set_index_ltp(round(bot_state['simulated_base_price'], 2))
                     logger.debug(f"[TEST] Simulated {index_name} LTP: {bot_state['index_ltp']}")
                 
                 # Update candle data
@@ -1346,7 +1376,7 @@ class TradingBot:
                     tick_change = choice([-15, -10, -5, -2, 0, 2, 5, 10, 15])
                     bot_state['simulated_base_price'] += tick_change
                     index_ltp = round(bot_state['simulated_base_price'], 2)
-                    bot_state['index_ltp'] = index_ltp
+                    self._set_index_ltp(index_ltp)
                 if provider != 'mds' and index_ltp > 0:
                     if index_ltp > high:
                         high = index_ltp

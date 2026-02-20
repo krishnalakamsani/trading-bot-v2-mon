@@ -205,6 +205,7 @@ class DhanAPI:
                         ltp = idx_data.get('last_price')
                         if ltp and ltp > 0:
                             logger.debug(f"Got {index_name} LTP: {ltp} from segment {seg}")
+                            logger.info(f"[TICK] Dhan get_index_ltp -> {index_name}: {ltp} (segment={seg})")
                             return float(ltp)
                         ohlc = idx_data.get('ohlc', {})
                         if ohlc and ohlc.get('close'):
@@ -239,14 +240,20 @@ class DhanAPI:
                 # Get Index LTP
                 idx_data = data.get(segment, {}).get(str(security_id), {})
                 if idx_data:
-                    index_ltp = float(idx_data.get('last_price', 0))
+                    try:
+                        index_ltp = float(idx_data.get('last_price', 0))
+                    except Exception:
+                        index_ltp = 0
                 
                 # Get Option LTP
                 fno_data = data.get(fno_segment, {}).get(str(option_security_id), {})
                 if fno_data:
-                    option_ltp = float(fno_data.get('last_price', 0))
-                    
-                logger.info(f"Quote: {index_name}={index_ltp}, Option {option_security_id}={option_ltp}")
+                    try:
+                        option_ltp = float(fno_data.get('last_price', 0))
+                    except Exception:
+                        option_ltp = 0
+
+                logger.info(f"[TICK] Quote: {index_name}={index_ltp}, Option {option_security_id}={option_ltp} (segments: index={segment}, option={fno_segment})")
                     
         except Exception as e:
             logger.error(f"Error fetching combined quote: {e}")

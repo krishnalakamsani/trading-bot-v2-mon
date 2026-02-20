@@ -549,7 +549,14 @@ async def set_trading_mode(mode: str) -> dict:
 
     # Clear any mode-specific cached market state so websocket clients get fresh values
     try:
-        bot_state['index_ltp'] = 0.0
+        try:
+            bot = get_trading_bot()
+            if bot and getattr(bot, '_set_index_ltp', None):
+                bot._set_index_ltp(0.0)
+            else:
+                bot_state['index_ltp'] = 0.0
+        except Exception:
+            bot_state['index_ltp'] = 0.0
         bot_state['current_option_ltp'] = 0.0
         bot_state['entry_price'] = 0.0
         bot_state['trailing_sl'] = None
@@ -571,7 +578,13 @@ async def set_trading_mode(mode: str) -> dict:
                         idx = config.get('selected_index')
                         index_ltp = await asyncio.to_thread(bot.dhan.get_index_ltp, idx)
                         if index_ltp and index_ltp > 0:
-                            bot_state['index_ltp'] = float(index_ltp)
+                            try:
+                                if bot and getattr(bot, '_set_index_ltp', None):
+                                    bot._set_index_ltp(index_ltp)
+                                else:
+                                    bot_state['index_ltp'] = float(index_ltp)
+                            except Exception:
+                                bot_state['index_ltp'] = float(index_ltp)
                     except Exception:
                         logger.debug("[CONFIG] Failed to prime index_ltp after switching to live")
             except Exception:

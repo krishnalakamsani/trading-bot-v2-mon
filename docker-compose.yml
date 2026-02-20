@@ -1,8 +1,8 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/backend/Dockerfile
     container_name: niftyalgo-backend
     restart: unless-stopped
     ports:
@@ -13,12 +13,15 @@ services:
     environment:
       - CORS_ORIGINS=*
       - MARKET_DATA_PROVIDER=dhan
+      - BOT_MODE=live
+      - AUTO_START_BOT=true
       - ENABLE_INTERNAL_MARKET_DATA_SERVICE=false
       - STORE_TICK_DATA=false
       - STORE_CANDLE_DATA=false
       - PRUNE_DB_ON_STARTUP=true
       - MAX_TICK_ROWS=0
       - MAX_CANDLE_ROWS=0
+      - WS_AUTH_TOKEN=${WS_AUTH_TOKEN:-s3cr3t_ws_token}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/status"]
       interval: 30s
@@ -29,16 +32,33 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/frontend/Dockerfile
       args:
         - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8001}
+        - REACT_APP_WS_TOKEN=${WS_AUTH_TOKEN:-}
     container_name: niftyalgo-frontend
     restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
       - backend
+    networks:
+      - niftyalgo-network
+
+  market-data:
+    build:
+      context: .
+      dockerfile: services/market-data/Dockerfile
+    container_name: niftyalgo-market-data
+    restart: unless-stopped
+    # Ensure the runner is invoked from the backend path inside the image
+    command: ["python3", "/app/backend/mds_service_runner.py"]
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/logs:/app/logs
     networks:
       - niftyalgo-network
 

@@ -1,16 +1,16 @@
-import time
-from datetime import datetime, timedelta, timezone
-from typing import Any
-
 import httpx
+import logging
 
 
 _client: httpx.AsyncClient | None = None
 _last_fetch_ts_close: float = 0.0
 _last_fetch_ts_candle: float = 0.0
 _last_price: float | None = None
+_last_price_streak: int = 0
 _last_candle_ts: str | None = None
 _last_candle: dict[str, Any] | None = None
+
+logger = logging.getLogger(__name__)
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -74,7 +74,16 @@ async def fetch_latest_close(
         close_f = None
 
     if close_f is not None and close_f > 0:
-        _last_price = close_f
+        # Track repeated identical closes to detect MDS duplication/stall
+        global _last_price_streak
+        if _last_price is None or close_f != _last_price:
+            _last_price = close_f
+            _last_price_streak = 1
+        else:
+            _last_price_streak += 1
+            if _last_price_streak >= 10:
+                logger.warning(f"[MDS] Close price repeated {_last_price_streak} times: {close_f}")
+
         _last_candle_ts = str(ts) if ts is not None else None
 
     return _last_price, _last_candle_ts

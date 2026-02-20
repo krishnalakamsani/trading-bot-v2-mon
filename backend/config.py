@@ -14,9 +14,10 @@ load_dotenv(ROOT_DIR / '.env')
 VALID_TIMEFRAMES = [5, 15, 30, 60, 300, 900]  # 5s, 15s, 30s, 1m, 5m, 15m
 
 # Global bot state
+DEFAULT_MODE = (os.getenv("BOT_MODE") or "paper").strip().lower()
 bot_state = {
     "is_running": False,
-    "mode": "paper",  # paper or live (default to paper for safety)
+    "mode": "live" if DEFAULT_MODE == "live" else "paper",  # paper or live (default to paper for safety)
     "current_position": None,
     "daily_trades": 0,
     "daily_pnl": 0.0,
@@ -79,8 +80,9 @@ def _env_float(name: str, default: float) -> float:
 
 
 config = {
-    "dhan_access_token": "",
-    "dhan_client_id": "",
+    # Dhan API credentials (populated from environment if present)
+    "dhan_access_token": (os.getenv("DHAN_ACCESS_TOKEN") or "").strip(),
+    "dhan_client_id": (os.getenv("DHAN_CLIENT_ID") or "").strip(),
     "order_qty": 1,  # Number of lots (will be multiplied by lot_size)
     "max_trades_per_day": 5,
     "daily_max_loss": 2000,
@@ -190,6 +192,15 @@ config = {
     # Trading control
     "trading_enabled": True,  # If False: no new entries, but indicators/updates continue
 }
+
+# WebSocket auth token (optional). If set, clients must connect with ?token=<token>
+config["ws_auth_token"] = (os.getenv("WS_AUTH_TOKEN", "") or "").strip()
+
+# Auto-start bot on server startup when True
+config["auto_start_bot"] = _env_bool("AUTO_START_BOT", False)
+
+# Allow external WebSocket clients to inject ticks when True (default: False)
+config["allow_external_ws_ticks"] = _env_bool("ALLOW_EXTERNAL_WS_TICKS", False)
 
 # SQLite Database path
 DB_PATH = ROOT_DIR / 'data' / 'trading.db'
